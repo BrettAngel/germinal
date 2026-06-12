@@ -2878,8 +2878,13 @@ async function saveToServer(){
     });
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
-    currentShareUrl = data.shareUrl;
-    return data.shareUrl;
+    // Build the share link from the domain the app is CURRENTLY running on,
+    // not the server's hardcoded value. This makes links work on
+    // germinal.pages.dev now and germinal.studio later — no code change
+    // needed when the domain moves.
+    const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
+    currentShareUrl = `${base}app.html?c=${data.shareId}`;
+    return currentShareUrl;
   }catch(e){
     console.warn('Server save failed, using fallback:', e.message);
     return null; // caller will use image fallback
