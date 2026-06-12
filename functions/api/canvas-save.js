@@ -60,7 +60,7 @@ export async function onRequestPost(context){
     }catch(e){ /* non-fatal */ }
 
     return new Response(JSON.stringify({
-      shareId:id, shareUrl:`https://germinal.studio/c/${id}`, depth
+      shareId:id, shareUrl:`https://germinal.studio/app.html?c=${id}`, depth
     }),{status:200,headers});
   }catch(err){
     return new Response(JSON.stringify({error:err.message}),{status:500,headers});

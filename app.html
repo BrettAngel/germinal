@@ -2937,17 +2937,23 @@ function showIncomingBanner(data){
 }
 
 // ── Check URL for share ID on load ──
-// Supports: germinal.studio/c/x7k2ab (via _redirects)
+// Supports both germinal.studio/app.html?c=x7k2ab (query param, no redirect)
+// and the older /c/x7k2ab path form, for any links already shared.
 async function checkShareUrl(){
-  const path = window.location.pathname;
-  const match = path.match(/\/c\/([a-z0-9]{4,10})$/i);
-  if(match){
-    const shareId = match[1];
+  let shareId = null;
+  // Preferred: ?c=ID query parameter (never triggers a redirect)
+  const qp = new URLSearchParams(window.location.search).get('c');
+  if(qp && /^[a-z0-9]{4,10}$/i.test(qp)) shareId = qp;
+  // Fallback: legacy /c/ID path form
+  if(!shareId){
+    const m = window.location.pathname.match(/\/c\/([a-z0-9]{4,10})$/i);
+    if(m) shareId = m[1];
+  }
+  if(shareId){
     showToast('Loading shared canvas…');
     const ok = await loadFromServer(shareId);
     if(ok){
       renderAll();updateStats();
-      // Skip genesis for received canvas
       document.getElementById('simPanel').classList.add('done');
       return true;
     }
