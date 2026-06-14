@@ -423,6 +423,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
 #simStatus{font-family:'Courier Prime',monospace;font-size:8.5px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--dim);text-align:center;margin-bottom:16px;
   min-height:14px;}
+/* Teaching caption — quiet, mechanic-only guidance during genesis */
+#simTeach{font-family:'Cormorant Garamond',serif;font-style:italic;
+  font-size:15px;line-height:1.45;color:#d8d0c0;text-align:center;
+  min-height:0;max-height:0;overflow:hidden;opacity:0;
+  transition:opacity .7s ease,max-height .7s ease,margin .7s ease;
+  margin:0;width:100%;}
+#simTeach.show{opacity:1;max-height:80px;margin:12px 0 4px;}
+#simTeach em{color:var(--gold);font-style:normal;}
 /* Contributors list */
 #simContribs{width:100%;display:flex;flex-direction:column;gap:8px;margin-bottom:18px;}
 .sc-item{display:flex;align-items:center;gap:12px;padding:10px 14px;
@@ -475,6 +483,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
     </div>
 
     <canvas id="simCanvas" height="140"></canvas>
+    <div id="simTeach"></div>
 
     <div id="simProgress"><div id="simFill"></div></div>
     <div id="simStatus">Initialising canvas…</div>
@@ -2511,6 +2520,8 @@ async function runBotContributor(nameIdx, options){
     name=SIM_NAMES[nameIdx%SIM_NAMES.length].name,
     loc=SIM_NAMES[nameIdx%SIM_NAMES.length].loc,
     desc=SIM_NAMES[nameIdx%SIM_NAMES.length].desc,
+    onLasso=null,   // optional callback(selectedSet) — lets caller trace the region
+    slow=false,     // optional — slow the mutation steps for the teaching moment
   }=options;
 
   const targetCount=Math.max(4,Math.floor(WT*targetPct));
@@ -2518,6 +2529,10 @@ async function runBotContributor(nameIdx, options){
   // Find organic seed and expand
   const seedIdx=findSeedCell(preferredColors,regionBias);
   const selected=organicLasso(seedIdx,targetCount,preferredColors);
+
+  // Expose the selected region BEFORE stabilising, so the caller can
+  // trace the lasso outline on screen (teaching: "this is a selection").
+  if(onLasso){ await onLasso(selected); }
 
   // Apply stabilisation — same as human lasso
   for(const i of selected){
@@ -2535,12 +2550,12 @@ async function runBotContributor(nameIdx, options){
     // Use fast version if no/few stabilised cells yet (early genesis)
     if(stabCount()<500) stepGenFast();
     else stepGen();
-    await new Promise(r=>setTimeout(r,16));
+    await new Promise(r=>setTimeout(r,slow?170:16));
   }
 
   return {name,loc,desc,color,
     letter:SIM_LETTERS[nameIdx%SIM_LETTERS.length],
-    stabCount:selected.size,genNum:generation};
+    stabCount:selected.size,genNum:generation,region:selected};
 }
 
 function scoreSimContributors(contributors){
@@ -2574,6 +2589,45 @@ async function runGenesis(){
     const W=Math.min(simCvs.parentElement?.clientWidth||300,460);
     simCvs.width=W;simCvs.height=Math.min(Math.round(W*WR/WC),160);
     simCtx.drawImage(cvs,0,0,simCvs.width,simCvs.height);
+  }
+  // Teaching caption — quiet, mechanic-only guidance. Never names a colour
+  // or shape; only points at what a selection DOES. Teaches by showing.
+  const teachEl=document.getElementById('simTeach');
+  async function teach(html, holdMs){
+    teachEl.innerHTML=html;
+    teachEl.classList.add('show');
+    await new Promise(r=>setTimeout(r, holdMs||2600));
+  }
+  async function teachClear(){
+    teachEl.classList.remove('show');
+    await new Promise(r=>setTimeout(r,700));
+  }
+  // Trace a selected region as a glowing outline on the sim thumbnail,
+  // so the viewer SEES what "a selection" is — the gesture, not the content.
+  async function traceLasso(selected, holdMs){
+    updateSimCanvas();
+    const sw=simCvs.width/WC, sh=simCvs.height/WR;
+    // Draw each selected cell as a faint glow, then an outline pulse
+    simCtx.save();
+    simCtx.globalCompositeOperation='lighter';
+    for(const i of selected){
+      const x=(i%WC)*sw, y=Math.floor(i/WC)*sh;
+      simCtx.fillStyle='rgba(255,220,120,0.10)';
+      simCtx.fillRect(x-0.5,y-0.5,sw+1,sh+1);
+    }
+    simCtx.restore();
+    // Bounding outline so the region reads as one deliberate "lasso"
+    let minX=1e9,minY=1e9,maxX=-1,maxY=-1;
+    for(const i of selected){
+      const cx=i%WC, cy=Math.floor(i/WC);
+      if(cx<minX)minX=cx; if(cx>maxX)maxX=cx;
+      if(cy<minY)minY=cy; if(cy>maxY)maxY=cy;
+    }
+    simCtx.strokeStyle='rgba(255,220,120,0.75)';
+    simCtx.lineWidth=1.5;
+    simCtx.setLineDash([4,3]);
+    simCtx.strokeRect(minX*sw-2,minY*sh-2,(maxX-minX)*sw+4,(maxY-minY)*sh+4);
+    await new Promise(r=>setTimeout(r, holdMs||1400));
   }
   function setStatus(msg,pct){
     statusEl.textContent=msg;fillEl.style.width=pct+'%';updateSimCanvas();
@@ -2615,7 +2669,8 @@ async function runGenesis(){
   // Uses stepGenFast() which skips the expensive recog field build
   const VOID_GENS=40;
   setStatus('In the beginning… the void',0);
-  await new Promise(r=>setTimeout(r,400));
+  await teach('A field of noise. No meaning yet — <em>nothing has been chosen.</em>', 2400);
+  await new Promise(r=>setTimeout(r,300));
 
   for(let g=0;g<VOID_GENS;g++){
     stepGenFast();  // ~10× faster than stepGen — no recog field
@@ -2627,12 +2682,13 @@ async function runGenesis(){
     }
   }
   renderAll();updateSimCanvas();
+  await teachClear();
 
   // ── THE GENESIS MOMENT ──
   // "Let there be light."
   // One bot notices warmth in the chaos and stabilises it.
   // This is the supernatural event — the improbable recognition.
-  await new Promise(r=>setTimeout(r,600));
+  await new Promise(r=>setTimeout(r,500));
   addLabel('✦  Let there be light  ✦',true);
   await new Promise(r=>setTimeout(r,400));
 
@@ -2641,7 +2697,11 @@ async function runGenesis(){
   // Region bias: upper-right — light comes from there instinctively
   const LIGHT_REGION={cx:0.70,cy:0.22,r:0.28};
 
-  setStatus('First recognition — light separated from darkness…',24);
+  // TEACHING MOMENT — slowed down, the first selection made legible.
+  // We trace the lasso so the viewer SEES the gesture, and narrate only
+  // the MECHANIC (what a selection does), never what to pick.
+  setStatus('First recognition — a selection is made…',24);
+  await teach('Someone notices something and <em>draws around it</em>.', 2200);
   const genesisContrib=await runBotContributor(nameIdx++,{
     preferredColors:WARM,
     targetPct:0.0018, // tiny — just a glimmer
@@ -2652,13 +2712,21 @@ async function runGenesis(){
     name:'Genesis',
     loc:'',
     desc:'light separated from darkness',
+    slow:true,        // slow the mutation steps so the effect is visible
+    onLasso: async (sel)=>{
+      // Show the selection as a traced region before it takes effect
+      await traceLasso(sel, 1500);
+      await teach('That choice is <em>held</em> — and everything around it begins to follow.', 2600);
+    },
   });
   contributors.push(genesisContrib);
   renderAll();updateSimCanvas();
-  await new Promise(r=>setTimeout(r,80));
+  await teach('A small, precise choice. <em>This is the whole game.</em>', 2400);
+  await teachClear();
 
   // A few more light-seekers — the first wave reinforcing
-  setStatus('First light — warmth recognised and held…',28);
+  setStatus('First light — others independently agree…',28);
+  await teach('Others, choosing <em>on their own</em>, land on the same place. Independent agreement is the real signal.', 2800);
   for(let i=0;i<5;i++){
     const contrib=await runBotContributor(nameIdx++,{
       preferredColors:WARM,
@@ -2754,7 +2822,8 @@ async function runGenesis(){
   setStatus(`Generation ${generation} · ${contributors.length} contributors · Canvas primed`,100);
   archiveState();renderAll();updateSimCanvas();
 
-  await new Promise(r=>setTimeout(r,400));
+  await teach('Now it is your turn. <em>Small and precise travels further than large and vague.</em>', 3000);
+  await new Promise(r=>setTimeout(r,200));
   document.getElementById('simBeginBtn').classList.add('ready');
   document.getElementById('simPanel').scrollTo({top:99999,behavior:'smooth'});
   attachSimButtons();
