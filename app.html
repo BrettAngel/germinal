@@ -1529,6 +1529,82 @@ function stepGenFast(){
   generation++;
   // Don't call scoreGeneration during fast void — nothing to score
 }
+
+// ── THE STRUGGLING VOID ──
+// Beat 1 of the genesis dramaturgy. Faint clusters of order TRY to form
+// across the dark field and then DISSOLVE back. The viewer feels the agony
+// of almost — improbability as lived experience. Most sparks die; that is
+// the point. Returns a list of live sparks so the ignition beat can choose
+// one improbable survivor to hold.
+// Each spark: {cx,cy,r,life,maxLife,hue,held}
+let voidSparks=[];
+function decayToDark(i, t){
+  // pull a cell back toward near-black
+  const DARK='#0a0a14';
+  cells[i].c=lerpH(cells[i].c, DARK, t);
+}
+function stepStrugglingVoid(birthRate){
+  // 1) gentle dark drift everywhere (the restless vacuum)
+  for(let i=0;i<WT;i++){
+    if(cells[i].s>0)continue;
+    if(Math.random()>0.012)continue;
+    decayToDark(i, 0.08+Math.random()*0.12);
+  }
+  // 2) occasionally birth a new would-be spark — a faint warm/struct cluster
+  if(Math.random()<(birthRate??0.6)){
+    const cx=Math.floor(Math.random()*WC);
+    const cy=Math.floor(Math.random()*WR);
+    const r=2+Math.floor(Math.random()*4);
+    const hue=20+Math.random()*40; // warm-ish, dim
+    voidSparks.push({cx,cy,r,life:0,maxLife:6+Math.floor(Math.random()*10),hue,held:false});
+  }
+  // 3) advance every spark: brighten toward peak, then die (unless held)
+  const survivors=[];
+  for(const sp of voidSparks){
+    sp.life++;
+    const phase = sp.held ? 1 : Math.sin(Math.PI*Math.min(1,sp.life/sp.maxLife)); // rise then fall
+    const bright = sp.held ? 1 : phase; // 0..1
+    // paint the spark cluster
+    for(let dy=-sp.r;dy<=sp.r;dy++){
+      const ny=sp.cy+dy; if(ny<0||ny>=WR)continue;
+      for(let dx=-sp.r;dx<=sp.r;dx++){
+        const nx=sp.cx+dx; if(nx<0||nx>=WC)continue;
+        const d=Math.sqrt(dx*dx+dy*dy); if(d>sp.r)continue;
+        const i=ny*WC+nx;
+        if(cells[i].s>0)continue;
+        const falloff=(1-d/sp.r);
+        const L = 10 + bright*falloff*48;       // lightness rises with bright
+        const S = 60;
+        cells[i].c = hsl2hex(sp.hue, S, Math.min(70,L));
+      }
+    }
+    // keep alive if still within life, or if it was chosen to hold
+    if(sp.held || sp.life<sp.maxLife){ survivors.push(sp); }
+    else {
+      // spark dies — actively dissolve its footprint back toward dark
+      for(let dy=-sp.r;dy<=sp.r;dy++){
+        const ny=sp.cy+dy; if(ny<0||ny>=WR)continue;
+        for(let dx=-sp.r;dx<=sp.r;dx++){
+          const nx=sp.cx+dx; if(nx<0||nx>=WC)continue;
+          const i=ny*WC+nx;
+          if(cells[i].s>0)continue;
+          decayToDark(i, 0.5);
+        }
+      }
+    }
+  }
+  voidSparks=survivors;
+  generation++;
+}
+// small hsl→hex helper (kept local; mirrors existing colour helpers)
+function hsl2hex(h,s,l){
+  s/=100; l/=100;
+  const k=n=>(n+h/30)%12;
+  const a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  const to=x=>Math.round(255*x).toString(16).padStart(2,'0');
+  return `#${to(f(0))}${to(f(8))}${to(f(4))}`;
+}
 function stepGen(){
   const pool=buildPool();buildRecogField();
   for(let i=0;i<WT;i++){
@@ -2667,34 +2743,61 @@ async function runGenesis(){
   // Yield to the browser every ~20 steps so the user sees it evolving.
   // VOID: 40 fast generations — browser stays fully responsive
   // Uses stepGenFast() which skips the expensive recog field build
-  const VOID_GENS=40;
+  // ── BEAT 1: THE STRUGGLING VOID ──
+  // Faint clusters of order try to form and dissolve. The agony of almost.
   setStatus('In the beginning… the void',0);
-  await teach('A field of noise. No meaning yet — <em>nothing has been chosen.</em>', 2400);
-  await new Promise(r=>setTimeout(r,300));
+  await teach('Order strains to form in the dark…', 2200);
 
-  for(let g=0;g<VOID_GENS;g++){
-    stepGenFast();  // ~10× faster than stepGen — no recog field
-    if(g%4===0){
-      renderAll();updateSimCanvas();
-      const pct=Math.round((g/VOID_GENS)*20);
-      setStatus(`Generation ${generation} — darkness, no selection…`,pct);
-      await new Promise(r=>setTimeout(r,16));
-    }
+  voidSparks=[];
+  const STRUGGLE_GENS=34;
+  for(let g=0;g<STRUGGLE_GENS;g++){
+    // birth rate rises slightly over time — the universe "trying harder"
+    const birthRate=0.45+0.4*(g/STRUGGLE_GENS);
+    stepStrugglingVoid(birthRate);
+    renderAll();updateSimCanvas();
+    const pct=Math.round((g/STRUGGLE_GENS)*18);
+    setStatus(`Generation ${generation} — nothing holds…`, pct);
+    // mid-struggle, deepen the feeling of hopeless improbability
+    if(g===14) await teach('Almost. <em>Not yet.</em>', 1800);
+    await new Promise(r=>setTimeout(r, 60));
   }
-  renderAll();updateSimCanvas();
   await teachClear();
 
-  // ── THE GENESIS MOMENT ──
-  // "Let there be light."
-  // One bot notices warmth in the chaos and stabilises it.
-  // This is the supernatural event — the improbable recognition.
+  // ── BEAT 2: IGNITION (the miracle, earned) ──
+  // A held breath of near-stillness, then one improbable spark HOLDS.
+  // Darken almost to nothing first, so the ignition lands hard.
+  for(const sp of voidSparks){ // let everything currently flaring start to die
+    sp.held=false; sp.maxLife=Math.min(sp.maxLife, sp.life+1);
+  }
+  // two quiet steps where the field falls toward dark
+  for(let q=0;q<2;q++){ stepStrugglingVoid(0); renderAll();updateSimCanvas();
+    setStatus('…', 18); await new Promise(r=>setTimeout(r,160)); }
   await new Promise(r=>setTimeout(r,500));
+
+  // The chosen spark: born in the upper-right light region, and HELD.
+  const igX=Math.round(WC*0.70), igY=Math.round(WR*0.22);
+  const igniter={cx:igX,cy:igY,r:3,life:0,maxLife:9999,hue:42,held:true};
+  voidSparks=[igniter];
   addLabel('✦  Let there be light  ✦',true);
+  // ignition bloom — brighten the held spark over a few quick frames
+  for(let b=0;b<5;b++){
+    igniter.r=3+b; // expand a touch
+    stepStrugglingVoid(0); // no new sparks; only the held one paints
+    // extra bright core
+    for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+      const nx=igX+dx,ny=igY+dy; if(nx<0||nx>=WC||ny<0||ny>=WR)continue;
+      cells[ny*WC+nx].c = hsl2hex(48, 80, 60+b*4);
+    }
+    renderAll();updateSimCanvas();
+    setStatus('Light, separated from darkness', 22);
+    await new Promise(r=>setTimeout(r, 90));
+  }
   await new Promise(r=>setTimeout(r,400));
 
+  // ── THE GENESIS MOMENT (teaching) ──
   // Warm colours — the first bot seeks any warmth in the dark field
   const WARM=['#ffee44','#ffcc00','#ff8800','#ff5500','#ffdd00','#ffaa00'];
-  // Region bias: upper-right — light comes from there instinctively
+  // Region bias: upper-right — anchored where the ignition occurred
   const LIGHT_REGION={cx:0.70,cy:0.22,r:0.28};
 
   // TEACHING MOMENT — slowed down, the first selection made legible.
