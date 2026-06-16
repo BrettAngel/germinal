@@ -1150,62 +1150,30 @@ function getSeed(theme){
   ],noise:Array.from({length:8},(_,i)=>`hsl(${(hue+i*18)%360},${55+i*3}%,${30+i*6}%)`)};
 }
 function seedCanvas(){
-  // ── TRUE DARK START ──
-  // Canvas begins as near-black with only faint scattered noise.
-  // No pre-painted sun — it must EMERGE from bot selection pressure.
-  // A handful of warm sparks are seeded into the upper-right region
-  // at very low density — just enough for the First Light bots to
-  // find and recognise. Without any selection pressure they would
-  // drift and fade. The bots stabilise them; mutation steps grow them.
-  // The sun is not placed. It is selected into existence.
+  // ── TRUE DARK START, FULL-SPECTRUM SUBSTRATE ──
+  // Canvas begins near-black. The faint noise spans the ENTIRE colour
+  // spectrum equally — blues, greens, everything — at low luminance.
+  // Nothing is pre-painted and no hue is privileged. Warmth/structure
+  // emerges only through SELECTION (what gets noticed against the dark and
+  // held), never through a biased substrate. This keeps the raw ingredients
+  // free so that complex, any-colour art can evolve by selection.
 
-  // Dark base colours — the canvas begins in near-darkness
+  // Dark base colours — the canvas begins in near-darkness (neutral, no tint)
   const DARK_BASE=[
     '#080810','#09090f','#0a0a12','#0b0b14','#0c0c16',
     '#08080e','#0a0910','#0c0b14','#0e0d16','#0d0c18',
   ];
 
-  // Faint theme-tinted noise (very subtle, mostly dark)
-  const theme=document.getElementById('themeIn').value||'love';
-  const themeSeed=getSeed(theme);
-  const THEME_NOISE=themeSeed.noise.map(c=>{
-    // Darken theme colours dramatically — just a hint of colour in the darkness
-    const[r,g,b]=h2r(c);
-    return r2h(Math.round(r*0.08),Math.round(g*0.08),Math.round(b*0.08));
-  });
-
-  // Sun region parameters — upper right quadrant
-  const SUN_CX=0.72, SUN_CY=0.20;
-
   for(let i=0;i<WT;i++){
-    const col=i%WC, row=Math.floor(i/WC);
-    const u=col/WC, v=row/WR;
+    // Base: near-black neutral
+    let base=rnd(DARK_BASE);
 
-    // Base: near-black with very faint theme tint
-    let base;
-    if(Math.random()<0.04){
-      // 4% of pixels get a faint theme colour tint
-      base=rnd(THEME_NOISE);
-    } else {
-      base=rnd(DARK_BASE);
-    }
-
-    // Scatter a tiny number of warm sparks in the upper-right region
-    // These are what the First Light bots will find and select
-    // Probability drops sharply with distance from sun centre
-    const dx=u-SUN_CX, dy=(v-SUN_CY)*(WC/WR);
-    const dist=Math.sqrt(dx*dx+dy*dy);
-    const sunRegion=Math.max(0,1-dist/0.25); // influence within radius 0.25
-
-    // Very sparse warm sparks — enough to find, not enough to see as a sun
-    const sparkProb=sunRegion*sunRegion*0.018; // max ~1.8% at centre
-    if(Math.random()<sparkProb){
-      // Warm spark: yellow/orange, still fairly dark
-      const warmCols=[
-        '#2a1a00','#301c00','#3a2000','#442400',
-        '#1e1400','#281800','#321c00','#1a1200',
-      ];
-      base=rnd(warmCols);
+    // ~5% of pixels carry a faint full-spectrum hint — ANY hue, low lightness.
+    // These are the free random ingredients, not a themed wash.
+    if(Math.random()<0.05){
+      const hue=Math.random()*360;
+      const light=6+Math.random()*8;      // very dark, just a hint of colour
+      base=hsl2hex(hue, 55, light);
     }
 
     const grain=(Math.random()-.5)*6; // small grain — mostly dark
@@ -1564,12 +1532,15 @@ function stepStrugglingVoid(birthRate){
     if(Math.random()>0.006)continue;
     decayToDark(i, 0.10+Math.random()*0.10);
   }
-  // 2) RARELY birth a would-be spark
+  // 2) RARELY birth a would-be spark — FULL SPECTRUM hue, but BRIGHT.
+  //    Bright/high-contrast sparks are what stand out against the void and
+  //    thus what tends to get noticed and held. Colour is free; visibility
+  //    is what selection responds to (contrast honesty).
   if(Math.random()<(birthRate??0.18)){
     const cx=Math.floor(Math.random()*WC);
     const cy=Math.floor(Math.random()*WR);
     const r=2+Math.floor(Math.random()*3);
-    const hue=20+Math.random()*40;
+    const hue=Math.random()*360;            // any colour
     voidSparks.push({cx,cy,r,life:0,maxLife:5+Math.floor(Math.random()*7),hue,held:false,peaked:false});
   }
   // 3) advance sparks: rise then fall; note the peak frame for a pulse
@@ -1616,18 +1587,20 @@ function stepStrugglingVoid(birthRate){
 // cells everywhere flicker into momentary rainbows, and far/old cells decay.
 // Returns nothing; caller drives it frame by frame, growing `radius`.
 function stepCascade(ox, oy, radius){
-  const RAINBOW=['#ff5544','#ffaa22','#ffee44','#44dd88','#44aaff','#aa66ff','#ff66cc'];
+  // full-spectrum randomizing ingredients — every hue, not just warm
+  const RAINBOW=['#ff5544','#ffaa22','#ffee44','#88dd33','#44dd88','#33ccbb',
+                 '#44aaff','#5577ff','#aa66ff','#ee66cc','#ff66aa','#ffffff'];
   for(let i=0;i<WT;i++){
     if(cells[i].s>0)continue;
     const cx=i%WC, cy=Math.floor(i/WC);
     const d=Math.hypot(cx-ox, cy-oy);
     if(d<radius){
-      // inside the order frontier — pull toward warm structured colour,
-      // but entropy still tugs: occasional randomizing rainbow flickers
+      // inside the order frontier — pull toward structured colour of ANY hue;
+      // entropy still tugs: occasional randomizing rainbow flickers
       if(Math.random()<0.04){
         cells[i].c=lerpH(cells[i].c, rnd(RAINBOW), 0.4); // the raw ingredients
       } else if(Math.random()<0.10){
-        const hue=20+((cx+cy)%50);
+        const hue=((cx*7+cy*13)%360);     // full spectrum, position-varied
         cells[i].c=lerpH(cells[i].c, hsl2hex(hue,55,46), 0.18);
       }
       // entropy at the OLD centre — oldest order frays
@@ -1637,8 +1610,8 @@ function stepCascade(ox, oy, radius){
     } else if(d<radius+6){
       // the frontier itself — sympathetic ignition as order reaches new dark
       if(Math.random()<0.22){
-        const hue=20+Math.random()*45;
-        cells[i].c=lerpH(cells[i].c, hsl2hex(hue,60,40), 0.5);
+        const hue=Math.random()*360;
+        cells[i].c=lerpH(cells[i].c, hsl2hex(hue,60,42), 0.5);
       }
     } else {
       // beyond the frontier — still dead, entropy keeps it dark
@@ -2729,10 +2702,54 @@ async function runGenesis(){
   let nameIdx=0;
   _genesisPalettes=null;
 
+  // simZoom: {cx,cy,z} — cx,cy are 0..1 centre on the canvas, z is zoom
+  // factor (1 = whole canvas, higher = deeper in). Drives a source-rect
+  // crop of the main canvas so genesis can be shown zoomed-in, then zoomed
+  // out staccato — making pixel-block evolution legible.
+  let simZoom={cx:0.5,cy:0.5,z:1};
   function updateSimCanvas(){
     const W=Math.min(simCvs.parentElement?.clientWidth||300,460);
     simCvs.width=W;simCvs.height=Math.min(Math.round(W*WR/WC),160);
-    simCtx.drawImage(cvs,0,0,simCvs.width,simCvs.height);
+    const z=Math.max(1,simZoom.z);
+    // source rectangle on the main canvas (cvs is WW×WH px)
+    const sw=WW/z, sh=WH/z;
+    let sx=simZoom.cx*WW - sw/2, sy=simZoom.cy*WH - sh/2;
+    // keep the crop within bounds
+    sx=Math.max(0,Math.min(WW-sw,sx)); sy=Math.max(0,Math.min(WH-sh,sy));
+    simCtx.imageSmoothingEnabled=false; // crisp pixel blocks when zoomed
+    simCtx.drawImage(cvs, sx,sy,sw,sh, 0,0,simCvs.width,simCvs.height);
+  }
+  // Smoothly tween the sim zoom from its current state to a target over ms.
+  async function simZoomTo(cx, cy, z, ms){
+    const s={cx:simZoom.cx, cy:simZoom.cy, z:simZoom.z};
+    const t0=performance.now();
+    return new Promise(res=>{
+      function frame(now){
+        const k=Math.min(1,(now-t0)/ms);
+        const e=k<0.5?2*k*k:1-Math.pow(-2*k+2,2)/2; // easeInOut
+        simZoom.cx=s.cx+(cx-s.cx)*e;
+        simZoom.cy=s.cy+(cy-s.cy)*e;
+        simZoom.z =s.z +(z -s.z )*e;
+        updateSimCanvas();
+        if(k<1) requestAnimationFrame(frame); else res();
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+  // Staccato zoom-out: step the zoom down in discrete jumps, running a few
+  // evolution steps at each level so the viewer sees generation-by-generation
+  // refinement at progressively wider scales.
+  async function simStaccatoOut(fromZ, toZ, steps, evolveFn){
+    for(let s=0;s<=steps;s++){
+      const z=fromZ + (toZ-fromZ)*(s/steps);
+      simZoom.z=z;
+      // drift centre gently back toward middle as we widen
+      simZoom.cx=0.5+(simZoom.cx-0.5)*(1-(s/steps));
+      simZoom.cy=0.5+(simZoom.cy-0.5)*(1-(s/steps));
+      if(evolveFn) await evolveFn(s);
+      updateSimCanvas();
+      await new Promise(r=>setTimeout(r,180)); // the "staccato" hold per step
+    }
   }
   // Teaching caption — quiet, mechanic-only guidance. Never names a colour
   // or shape; only points at what a selection DOES. Teaches by showing.
@@ -2854,32 +2871,53 @@ async function runGenesis(){
   const igX=Math.round(WC*0.70), igY=Math.round(WR*0.22);
   const igniter={cx:igX,cy:igY,r:3,life:0,maxLife:9999,hue:42,held:true,peaked:true};
   voidSparks=[igniter];
-  // gentle held glow appears
   stepStrugglingVoid(0); renderAll();updateSimCanvas();
-  // CLOCK STOPS — slow, reverent. Spotlight the held spark on the panel.
+  // CLOCK STOPS — succinct, poetically scientific. Spotlight the held spark.
   if(simCvs){ simCvs.style.transition='box-shadow .6s';
     simCvs.style.boxShadow='0 0 40px rgba(255,210,130,0.6)'; }
-  addLabel('✦  one improbable thing holds  ✦',true);
-  await teach('Stop the clock. <em>Look</em> — against everything, this one held.', 3200);
-  await new Promise(r=>setTimeout(r,800));
-  await teach('Someone reaches out and <em>refuses to let it dissolve</em>.', 3000);
-  if(simCvs){ simCvs.style.boxShadow='none'; }
+  addLabel('✦  one point holds  ✦',true);
+  await teach('Against vast odds, one point holds.', 2600);
+  await new Promise(r=>setTimeout(r,500));
 
-  // ── BEAT 3: THE SPREADING CASCADE (order grows OUTWARD from the one spark) ──
-  // Each step the order frontier expands; the black recedes from the origin.
-  // Entropy tugs the whole time — rainbows flicker, edges/old centre fray.
-  addLabel('✦  Let there be light  ✦',true);
-  setStatus('Order spreads from a single origin…',20);
-  await teach('From that one held point, order <em>spreads</em> — life colonising the dark.', 2600);
-  const maxR=Math.hypot(WC,WR);
-  for(let step=0; step<26; step++){
-    const radius = (step/25)*maxR*1.05;
+  // ── BEAT 3: ZOOMED STACCATO GENESIS ──
+  // Zoom DEEP into the held spark so pixel-blocks are large and legible;
+  // evolution happens while zoomed; then a staccato zoom-out reveals the
+  // order spreading outward, generation by generation, until the whole
+  // field — out to the darkest edges — comes to life.
+  const sCx=igX/WC, sCy=igY/WR;     // spark centre in 0..1
+  await simZoomTo(sCx, sCy, 14, 1400);   // dive in
+  if(simCvs){ simCvs.style.boxShadow='none'; }
+  await teach('Order is held against entropy — and begins to spread.', 2400);
+
+  // Evolve WHILE zoomed in — legible: blocks chosen, held, mutating.
+  for(let step=0; step<8; step++){
+    const radius=(step+1)*3;
     stepCascade(igX, igY, radius);
     renderAll();updateSimCanvas();
-    const pct=20+Math.round((step/26)*4);
-    setStatus(`Generation ${generation} — the universe fills…`, pct);
-    if(step===12) await teach('But entropy never rests. Left alone, the dark would win.', 2600);
-    await new Promise(r=>setTimeout(r, 55));
+    setStatus(`Generation ${generation} — the first order refines…`, 20);
+    await new Promise(r=>setTimeout(r,150));
+  }
+
+  // STACCATO ZOOM-OUT — widen step by step, evolving at each scale, the
+  // order frontier chasing outward toward the dark edges.
+  await teach('Each generation, the dark recedes a little further.', 2400);
+  const maxR=Math.hypot(WC,WR);
+  let casStep=8;
+  await simStaccatoOut(14, 1, 12, async (s)=>{
+    casStep++;
+    const radius=Math.min(maxR*1.05, (casStep/16)*maxR*1.1);
+    stepCascade(igX, igY, radius);
+    renderAll();
+    setStatus(`Generation ${generation} — the universe fills…`, 20+Math.round((s/12)*4));
+    if(s===6) await teach('But entropy never rests. Unheld, the dark returns.', 2400);
+  });
+
+  // settle at full view, a couple of final fills so the very edges live
+  simZoom={cx:0.5,cy:0.5,z:1};
+  for(let step=0; step<4; step++){
+    stepCascade(igX, igY, maxR*1.1);
+    renderAll();updateSimCanvas();
+    await new Promise(r=>setTimeout(r,90));
   }
   await teachClear();
   await new Promise(r=>setTimeout(r,300));
