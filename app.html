@@ -1580,43 +1580,54 @@ function stepStrugglingVoid(birthRate){
   return pulsed;
 }
 
-// ── THE SPREADING CASCADE ──
-// Beat 3. Order propagates OUTWARD from a single origin (ox,oy). A growing
-// "order frontier" radius; cells inside are pulled toward warm order, the
-// frontier ignites sympathetic colour, and ENTROPY constantly tugs: random
-// cells everywhere flicker into momentary rainbows, and far/old cells decay.
-// Returns nothing; caller drives it frame by frame, growing `radius`.
-function stepCascade(ox, oy, radius){
-  // full-spectrum randomizing ingredients — every hue, not just warm
+// ── THE TURBULENT CASCADE ──
+// Beat 3. Order propagates OUTWARD from a single origin (ox,oy) as a growing
+// frontier. Inside the frontier the field CHURNS — each touched cell pulls
+// toward a blend of its neighbours (currents/eddies) plus a random kick
+// (chaos): fluid turbulence, an expanding universe wrestling entropy. As the
+// frontier passes, churn gradually settles. Performance: we process only a
+// stochastic SAMPLE of cells per call (not all ~600k), so it stays smooth and
+// can ACCELERATE. `intensity` (0..1+) scales how much churn happens per call —
+// the caller ramps it up for the vortex crescendo.
+function stepCascade(ox, oy, radius, intensity){
   const RAINBOW=['#ff5544','#ffaa22','#ffee44','#88dd33','#44dd88','#33ccbb',
                  '#44aaff','#5577ff','#aa66ff','#ee66cc','#ff66aa','#ffffff'];
-  for(let i=0;i<WT;i++){
+  const inten=intensity??0.5;
+  // number of cells to touch this call — scales with intensity, capped for perf
+  const budget=Math.floor(WT*0.05*inten);
+  const r2=radius*radius;
+  for(let n=0;n<budget;n++){
+    const i=(Math.random()*WT)|0;
     if(cells[i].s>0)continue;
-    const cx=i%WC, cy=Math.floor(i/WC);
-    const d=Math.hypot(cx-ox, cy-oy);
-    if(d<radius){
-      // inside the order frontier — pull toward structured colour of ANY hue;
-      // entropy still tugs: occasional randomizing rainbow flickers
-      if(Math.random()<0.04){
-        cells[i].c=lerpH(cells[i].c, rnd(RAINBOW), 0.4); // the raw ingredients
-      } else if(Math.random()<0.10){
-        const hue=((cx*7+cy*13)%360);     // full spectrum, position-varied
-        cells[i].c=lerpH(cells[i].c, hsl2hex(hue,55,46), 0.18);
+    const cx=i%WC, cy=(i/WC)|0;
+    const dx=cx-ox, dy=cy-oy;
+    const dd=dx*dx+dy*dy;
+    if(dd<r2){
+      // INSIDE frontier — churn: blend with a random neighbour + random kick
+      const ddist=Math.sqrt(dd);
+      // sample one neighbour for current/eddy continuity
+      const ndx=(Math.random()*3|0)-1, ndy=(Math.random()*3|0)-1;
+      const nx=cx+ndx, ny=cy+ndy;
+      if(nx>=0&&nx<WC&&ny>=0&&ny<WR){
+        const ni=ny*WC+nx;
+        cells[i].c=lerpH(cells[i].c, cells[ni].c, 0.35); // current
       }
-      // entropy at the OLD centre — oldest order frays
-      if(d<radius*0.4 && Math.random()<0.015){
-        decayToDark(i, 0.25);
+      // random kick — the chaos that keeps it turbulent
+      const churn = 0.18 + 0.25*inten; // more churn as intensity rises
+      if(Math.random()<churn){
+        cells[i].c=lerpH(cells[i].c, rnd(RAINBOW), 0.30);
       }
-    } else if(d<radius+6){
-      // the frontier itself — sympathetic ignition as order reaches new dark
-      if(Math.random()<0.22){
-        const hue=Math.random()*360;
-        cells[i].c=lerpH(cells[i].c, hsl2hex(hue,60,42), 0.5);
+      // entropy frays the OLDEST order near the centre
+      if(ddist<radius*0.45 && Math.random()<0.02){
+        decayToDark(i, 0.18);
       }
-    } else {
-      // beyond the frontier — still dead, entropy keeps it dark
-      if(Math.random()<0.01) decayToDark(i, 0.2);
+    } else if(dd < (radius+8)*(radius+8)){
+      // FRONTIER — ignite new ground as order reaches it
+      if(Math.random()<0.5){
+        cells[i].c=lerpH(cells[i].c, rnd(RAINBOW), 0.5);
+      }
     }
+    // beyond frontier: leave dark (handled by the void/seed)
   }
   generation++;
 }
@@ -2887,40 +2898,53 @@ async function runGenesis(){
   const sCx=igX/WC, sCy=igY/WR;     // spark centre in 0..1
   await simZoomTo(sCx, sCy, 14, 1400);   // dive in
   if(simCvs){ simCvs.style.boxShadow='none'; }
-  await teach('Order is held against entropy — and begins to spread.', 2400);
+  await teach('Order is held against entropy — and begins to spread.', 2200);
 
-  // Evolve WHILE zoomed in — legible: blocks chosen, held, mutating.
-  for(let step=0; step<8; step++){
-    const radius=(step+1)*3;
-    stepCascade(igX, igY, radius);
+  // Evolve WHILE zoomed in — legible: blocks churning, held, mutating.
+  for(let step=0; step<7; step++){
+    stepCascade(igX, igY, (step+1)*3, 0.4);
     renderAll();updateSimCanvas();
     setStatus(`Generation ${generation} — the first order refines…`, 20);
-    await new Promise(r=>setTimeout(r,150));
+    await new Promise(r=>setTimeout(r,140));
   }
 
-  // STACCATO ZOOM-OUT — widen step by step, evolving at each scale, the
-  // order frontier chasing outward toward the dark edges.
-  await teach('Each generation, the dark recedes a little further.', 2400);
+  // ── THE VORTEX CRESCENDO ──
+  // A single smooth, ACCELERATING zoom-out. Each frame: the frontier expands
+  // faster, the churn intensifies, and the frame delay shrinks — slow at
+  // first, then rushing, like water spiralling down a drain, screaming toward
+  // the moment it becomes the human's to play.
+  await teach('Each generation, the dark recedes — faster, and faster.', 2200);
   const maxR=Math.hypot(WC,WR);
-  let casStep=8;
-  await simStaccatoOut(14, 1, 12, async (s)=>{
-    casStep++;
-    const radius=Math.min(maxR*1.05, (casStep/16)*maxR*1.1);
-    stepCascade(igX, igY, radius);
-    renderAll();
-    setStatus(`Generation ${generation} — the universe fills…`, 20+Math.round((s/12)*4));
-    if(s===6) await teach('But entropy never rests. Unheld, the dark returns.', 2400);
-  });
-
-  // settle at full view, a couple of final fills so the very edges live
-  simZoom={cx:0.5,cy:0.5,z:1};
-  for(let step=0; step<4; step++){
-    stepCascade(igX, igY, maxR*1.1);
+  const VORTEX_FRAMES=46;
+  for(let f=0; f<VORTEX_FRAMES; f++){
+    const p=f/(VORTEX_FRAMES-1);            // 0..1 progress
+    const ease=p*p;                          // accelerating (quadratic)
+    // zoom from 14 → 1, accelerating
+    simZoom.z = 14 - 13*ease;
+    // drift centre back toward middle as we widen
+    simZoom.cx = sCx + (0.5-sCx)*ease;
+    simZoom.cy = sCy + (0.5-sCy)*ease;
+    // frontier expands, accelerating; intensity climbs toward the scream
+    const radius = ease*maxR*1.15;
+    const intensity = 0.35 + 1.15*ease;      // churn builds hard at the end
+    stepCascade(igX, igY, radius, intensity);
     renderAll();updateSimCanvas();
-    await new Promise(r=>setTimeout(r,90));
+    if(f===Math.floor(VORTEX_FRAMES*0.5))
+      await teach('But entropy never rests. Unheld, the dark returns.', 2000);
+    setStatus(`Generation ${generation} — the universe fills…`, 20+Math.round(p*5));
+    // delay shrinks as it accelerates: ~90ms → ~14ms
+    await new Promise(r=>setTimeout(r, Math.round(90 - 76*ease)));
+  }
+
+  // peak: full view, a few intense fills so the very edges scream to life
+  simZoom={cx:0.5,cy:0.5,z:1};
+  for(let step=0; step<5; step++){
+    stepCascade(igX, igY, maxR*1.2, 1.4);
+    renderAll();updateSimCanvas();
+    await new Promise(r=>setTimeout(r,40));
   }
   await teachClear();
-  await new Promise(r=>setTimeout(r,300));
+  await new Promise(r=>setTimeout(r,250));
 
   // ── THE GENESIS MOMENT (teaching) ──
   // Warm colours — the first bot seeks any warmth in the dark field
