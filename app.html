@@ -423,6 +423,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
 #simStatus{font-family:'Courier Prime',monospace;font-size:8.5px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--dim);text-align:center;margin-bottom:16px;
   min-height:14px;}
+#simClockRow{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;}
+#simClockRow #simStatus{margin-bottom:0;}
+#simClock{opacity:.0;transition:opacity .6s;flex-shrink:0;}
+#simClock.show{opacity:.85;}
 /* Teaching caption — quiet, mechanic-only guidance during genesis */
 #simTeach{font-family:'Cormorant Garamond',serif;font-style:italic;
   font-size:15px;line-height:1.45;color:#d8d0c0;text-align:center;
@@ -486,7 +490,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
     <div id="simTeach"></div>
 
     <div id="simProgress"><div id="simFill"></div></div>
-    <div id="simStatus">Initialising canvas…</div>
+    <div id="simClockRow">
+      <canvas id="simClock" width="34" height="34"></canvas>
+      <div id="simStatus">Initialising canvas…</div>
+    </div>
 
     <div id="simContribs"></div>
 
@@ -1719,6 +1726,43 @@ window.toggleAuto=()=>{
 };
 
 // ═══════════════════════════════════════════════════════════════════
+// GENESIS CLOCK — a small clock whose hands race to convey deep time
+// passing / evolution accelerating. clockAngle advances each call; the
+// caller can advance it faster during the vortex crescendo.
+// ═══════════════════════════════════════════════════════════════════
+let clockAngle=0;
+function drawClock(advance){
+  const cv=document.getElementById('simClock'); if(!cv)return;
+  const cx=cv.getContext('2d'), W=cv.width, H=cv.height, R=W/2-3;
+  clockAngle += (advance||0);
+  cx.clearRect(0,0,W,H);
+  // face
+  cx.strokeStyle='rgba(200,169,110,0.55)'; cx.lineWidth=1.5;
+  cx.beginPath(); cx.arc(W/2,H/2,R,0,Math.PI*2); cx.stroke();
+  // tick marks
+  cx.strokeStyle='rgba(200,169,110,0.30)'; cx.lineWidth=1;
+  for(let t=0;t<12;t++){
+    const a=t/12*Math.PI*2;
+    cx.beginPath();
+    cx.moveTo(W/2+Math.cos(a)*(R-2), H/2+Math.sin(a)*(R-2));
+    cx.lineTo(W/2+Math.cos(a)*R, H/2+Math.sin(a)*R);
+    cx.stroke();
+  }
+  // hour hand (slow) and minute hand (fast) — minute spins ~12× hour
+  const minA=clockAngle, hrA=clockAngle/12 - Math.PI/2;
+  const mA=minA - Math.PI/2;
+  cx.strokeStyle='rgba(255,220,150,0.9)'; cx.lineWidth=2; cx.lineCap='round';
+  cx.beginPath(); cx.moveTo(W/2,H/2);
+  cx.lineTo(W/2+Math.cos(hrA)*R*0.5, H/2+Math.sin(hrA)*R*0.5); cx.stroke();
+  cx.lineWidth=1.5;
+  cx.beginPath(); cx.moveTo(W/2,H/2);
+  cx.lineTo(W/2+Math.cos(mA)*R*0.8, H/2+Math.sin(mA)*R*0.8); cx.stroke();
+  // centre pin
+  cx.fillStyle='rgba(255,220,150,0.9)';
+  cx.beginPath(); cx.arc(W/2,H/2,1.6,0,Math.PI*2); cx.fill();
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════════════════════
 function renderAll(){
@@ -2848,15 +2892,18 @@ async function runGenesis(){
   // Near-total dark. Rare, easy-to-miss flickers. Each peak fires a faint
   // visual PULSE — a heartbeat against the silence. Most order dies.
   setStatus('In the beginning… the void',0);
+  const clockEl=document.getElementById('simClock');
+  if(clockEl){ clockEl.classList.add('show'); }
+  drawClock(0);
   await teach('A vast, cold dark. <em>Almost</em> nothing ever holds.', 2600);
 
   voidSparks=[];
   const STRUGGLE_GENS=60;       // longer, but mostly empty dark
-  const teachEl2=document.getElementById('simTeach');
   for(let g=0;g<STRUGGLE_GENS;g++){
     // VERY low birth rate — long lonely gaps between flickers
     const pulsed=stepStrugglingVoid(0.10);
     renderAll();updateSimCanvas();
+    drawClock(0.12);           // time creeps slowly in the dead void
     const pct=Math.round((g/STRUGGLE_GENS)*18);
     setStatus(`Generation ${generation} — nothing holds…`, pct);
     // a faint pulse on the panel when a spark peaks (the heartbeat)
@@ -2929,6 +2976,7 @@ async function runGenesis(){
     const intensity = 0.35 + 1.15*ease;      // churn builds hard at the end
     stepCascade(igX, igY, radius, intensity);
     renderAll();updateSimCanvas();
+    drawClock(0.3 + 2.2*ease);   // hands race ever faster — deep time rushing
     if(f===Math.floor(VORTEX_FRAMES*0.5))
       await teach('But entropy never rests. Unheld, the dark returns.', 2000);
     setStatus(`Generation ${generation} — the universe fills…`, 20+Math.round(p*5));
@@ -2952,36 +3000,72 @@ async function runGenesis(){
   // Region bias: upper-right — anchored where the ignition occurred
   const LIGHT_REGION={cx:0.70,cy:0.22,r:0.28};
 
-  // TEACHING MOMENT — slowed down, the first selection made legible.
-  // We trace the lasso so the viewer SEES the gesture, and narrate only
-  // the MECHANIC (what a selection does), never what to pick.
-  setStatus('First recognition — a selection is made…',24);
-  await teach('Someone notices something and <em>draws around it</em>.', 2200);
+  // TEACHING MOMENT — the "hand of God" demonstration.
+  // We zoom back IN to legible pixel-blocks and show a contributor compose
+  // by selecting SEVERAL clusters across the field before a single Evolve —
+  // guiding a creation, at the mercy of the generative rules. Language evokes
+  // directing emergence, never painting; never prescribes WHAT to pick.
+  setStatus('A hand reaches into the noise…',24);
+  await teach('You cannot paint here. You can only <em>choose</em> — and let the rules do the rest.', 2800);
+
+  // Zoom into the ignition neighbourhood so the selection is legible.
+  await simZoomTo(0.70, 0.22, 8, 1200);
+  await teach('Pick out what seems to belong — a few pixels, here…', 2200);
+
+  // First cluster
   const genesisContrib=await runBotContributor(nameIdx++,{
     preferredColors:WARM,
-    targetPct:0.0018, // tiny — just a glimmer
-    stabLevel:2,      // immediately refined — this is the chosen moment
-    mutSteps:12,      // long burn after — let the warmth spread
+    targetPct:0.0016,
+    stabLevel:2,
+    mutSteps:6,
     regionBias:LIGHT_REGION,
     color:'#ffcc44',
-    name:'Genesis',
-    loc:'',
-    desc:'light separated from darkness',
-    slow:true,        // slow the mutation steps so the effect is visible
-    onLasso: async (sel)=>{
-      // Show the selection as a traced region before it takes effect
-      await traceLasso(sel, 1500);
-      await teach('That choice is <em>held</em> — and everything around it begins to follow.', 2600);
-    },
+    name:'Genesis', loc:'', desc:'the first deliberate choice',
+    slow:true,
+    onLasso: async (sel)=>{ await traceLasso(sel, 1300); },
   });
   contributors.push(genesisContrib);
   renderAll();updateSimCanvas();
-  await teach('A small, precise choice. <em>This is the whole game.</em>', 2400);
+
+  // Second cluster — same character, nearby — "…and here."
+  await teach('…and more, <em>here</em>. Several choices, one intention.', 2400);
+  const c2=await runBotContributor(nameIdx++,{
+    preferredColors:WARM,
+    targetPct:0.0016, stabLevel:2, mutSteps:6,
+    regionBias:{cx:0.62,cy:0.30,r:0.16},
+    color:'#ffcc44', name:'', loc:'', desc:'composing',
+    slow:true,
+    onLasso: async (sel)=>{ await traceLasso(sel, 1200); },
+  });
+  contributors.push(c2);
+  renderAll();updateSimCanvas();
+
+  // Third cluster — a contrasting element below, to suggest composition
+  await teach('Even something different below — building a whole.', 2200);
+  const c3=await runBotContributor(nameIdx++,{
+    preferredColors:['#88dd33','#5aa022','#6fb52e','#4a8018'], // a green note
+    targetPct:0.0014, stabLevel:2, mutSteps:6,
+    regionBias:{cx:0.66,cy:0.46,r:0.14},
+    color:'#88dd33', name:'', loc:'', desc:'a contrasting choice',
+    slow:true,
+    onLasso: async (sel)=>{ await traceLasso(sel, 1200); },
+  });
+  contributors.push(c3);
+  renderAll();updateSimCanvas();
+
+  // Then "evolve" — the rules carry the composition forward
+  await teach('Then you let go — and the rules <em>carry it forward</em>.', 2600);
+  for(let s=0;s<6;s++){ stepGen(); renderAll();updateSimCanvas();
+    drawClock(0.5); await new Promise(r=>setTimeout(r,120)); }
+
+  // Zoom back out for context
+  await simZoomTo(0.5,0.5,1,1100);
+  await teach('A few precise choices, scattered with intent. <em>This is the game.</em>', 2600);
   await teachClear();
 
-  // A few more light-seekers — the first wave reinforcing
-  setStatus('First light — others independently agree…',28);
-  await teach('Others, choosing <em>on their own</em>, land on the same place. Independent agreement is the real signal.', 2800);
+  // A few more contributors — independent agreement
+  setStatus('Others arrive, choosing on their own…',28);
+  await teach('Others, choosing <em>on their own</em>, land on the same places. Independent agreement is the real signal.', 2800);
   for(let i=0;i<5;i++){
     const contrib=await runBotContributor(nameIdx++,{
       preferredColors:WARM,
