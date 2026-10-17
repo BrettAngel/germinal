@@ -55,25 +55,36 @@ body.hide-cursor{cursor:none;}
 .f-stat{text-align:center;}
 .f-stat .v{font-family:'Courier Prime',monospace;font-size:clamp(20px,2.6vw,30px);
   color:var(--gold);display:block;line-height:1;}
-.f-stat .l{font-family:'Courier Prime',monospace;font-size:8px;letter-spacing:.22em;
-  text-transform:uppercase;color:rgba(232,224,208,.4);margin-top:5px;}
+.f-stat .l{font-family:'Courier Prime',monospace;font-size:11px;letter-spacing:.22em;
+  text-transform:uppercase;color:rgba(232,224,208,.7);margin-top:5px;}
 .f-qr{background:#fff;padding:12px;border-radius:10px;line-height:0;}
 .f-qr canvas,.f-qr img{display:block;width:clamp(120px,12vw,168px);height:auto;}
-.f-scan{font-family:'Courier Prime',monospace;font-size:9px;letter-spacing:.18em;
+.f-scan{font-family:'Courier Prime',monospace;font-size:12px;letter-spacing:.18em;
   text-transform:uppercase;color:rgba(232,224,208,.55);text-align:center;line-height:1.7;}
 .f-scan b{color:var(--gold);}
 
 /* ── Floating QR for pure-art mode (auto-hides) ── */
+/* Always-visible "Scan to join" card (bottom-right) */
 #floatQR{position:fixed;bottom:24px;right:24px;z-index:10;
-  background:rgba(255,255,255,.92);padding:8px;border-radius:8px;line-height:0;
-  opacity:0;transition:opacity 1.2s ease;pointer-events:none;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  background:rgba(6,6,15,.72);backdrop-filter:blur(8px);
+  border:1px solid rgba(200,169,110,.28);padding:10px 10px 12px;border-radius:12px;
+  opacity:.95;transition:opacity 1.2s ease;pointer-events:none;
   box-shadow:0 4px 30px rgba(0,0,0,.4);}
-#floatQR.show{opacity:.92;}
-#floatQR canvas,#floatQR img{display:block;width:84px;height:84px;}
-#floatQR .fq-label{position:absolute;bottom:8px;left:-2px;transform:translateX(-100%);
-  font-family:'Courier Prime',monospace;font-size:8px;letter-spacing:.15em;
-  text-transform:uppercase;color:rgba(200,169,110,.7);white-space:nowrap;
-  background:rgba(6,6,15,.6);padding:4px 8px;border-radius:4px;}
+#floatQR .fq-code{background:#fff;padding:6px;border-radius:6px;line-height:0;}
+#floatQR canvas,#floatQR img{display:block;width:clamp(96px,9vw,140px);height:auto;}
+#floatQR .fq-label{font-family:'Courier Prime',monospace;font-size:clamp(11px,1.1vw,14px);letter-spacing:.18em;
+  text-transform:uppercase;color:var(--gold);white-space:nowrap;}
+body.framed #floatQR{opacity:0;}
+#demoNote{position:fixed;top:18px;left:18px;z-index:10;font-family:'Courier Prime',monospace;
+  font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,224,208,.7);
+  background:rgba(6,6,15,.55);padding:6px 10px;border-radius:6px;display:none;}
+body.demo #demoNote{display:block;}
+/* Narrow screens: lift the status pill above the QR card so they never overlap */
+@media (max-width:760px){
+  #pulse{bottom:calc(24px + 96px + 60px);max-width:calc(100vw - 32px);gap:10px;padding:10px 16px;}
+  #floatQR{right:50%;transform:translateX(50%);}
+}
 
 /* ── Controls (top-right, auto-hide) ── */
 #controls{position:fixed;top:18px;right:18px;display:flex;gap:8px;z-index:14;
@@ -108,7 +119,8 @@ body.hide-cursor{cursor:none;}
 </div>
 
 <!-- floating QR (pure-art mode) -->
-<div id="floatQR"><span class="fq-label">scan to join →</span><div id="floatQRcode"></div></div>
+<div id="floatQR"><span class="fq-label">Scan to join</span><div class="fq-code" id="floatQRcode"></div></div>
+<div id="demoNote">Simulation · waiting for the first saved canvas</div>
 
 <!-- frame-mode info panel -->
 <div id="frame">
@@ -147,7 +159,8 @@ cvs.width=WW; cvs.height=WH;
 
 // ── Theme deep-link for the QR: scan → succinct intro carrying the theme,
 //    with a skip straight to the canvas (intro handles ?theme= & skip). ──
-const joinURL = `${location.origin}/intro.html?theme=${encodeURIComponent(theme)}`;
+// Scan → straight into the app with this theme (first-timers still get genesis).
+const joinURL = `${location.origin}/app.html?theme=${encodeURIComponent(theme)}`;
 
 // ── Responsive fit, DPR-aware crispness ──
 function resize(){
@@ -203,6 +216,8 @@ function render(){
 // Stabilised cells (s=1) are held — they are the collective's memory.
 // Free cells drift: blend toward neighbours (currents) with a small random
 // kick (entropy). Sampled, not full-scan, so it's light on low-power screens.
+function hsl2hex(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return r2h(f(0)*255,f(8)*255,f(4)*255);}
 const RAINBOW=['#ff5544','#ffaa22','#ffee44','#88dd33','#44dd88','#33ccbb',
                '#44aaff','#5577ff','#aa66ff','#ee66cc','#ff66aa','#ffffff'];
 function stepLocal(){
@@ -239,32 +254,60 @@ function setStats(gen, contribs){
   document.getElementById('fContribs').textContent=(contribs||0).toLocaleString();
 }
 
-// ── Server fetch ──
+// ── Server fetch, with graceful fallback ──
+// Order: live API → last canvas cached on this screen → local simulation.
+// The display never sits on the loading screen, and keeps retrying the API.
+const CACHE_KEY='germinal_live_'+theme;
+let mode='init'; // 'live' | 'cached' | 'demo'
+function setMode(m){
+  mode=m;
+  document.getElementById('demoNote').textContent =
+    m==='cached' ? 'Offline · showing the last saved canvas' : 'Simulation · waiting for the first saved canvas';
+  document.body.classList.toggle('demo', m!=='live');
+}
+function seedDemo(){
+  for(let i=0;i<WT;i++){
+    cells[i]={c:(Math.random()<0.5?'#0a0a14':hsl2hex(Math.random()*360|0,60,10+Math.random()*35|0)),s:0};
+  }
+}
+function fallback(){
+  if(mode==='live'||mode==='cached'||mode==='demo') return; // already animating something
+  let cached=null;
+  try{ cached=JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); }catch(e){}
+  if(cached&&cached.cellData&&decodeCanvas(cached.cellData)){
+    curGen=cached.generation||0; curContribs=cached.contributorCount||0;
+    setStats(curGen,curContribs); setMode('cached');
+  }else{
+    seedDemo(); setMode('demo');
+    document.getElementById('pGen').textContent='—';
+    document.getElementById('fGen').textContent='—';
+    document.getElementById('pContribs').textContent='0';
+    document.getElementById('fContribs').textContent='0';
+  }
+  render();
+  document.getElementById('loading').classList.add('gone');
+  showPulse();
+}
 async function fetchLive(){
   try{
-    const res=await fetch(`/api/display-live?theme=${encodeURIComponent(theme)}`);
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const data=await res.json();
+    const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),8000);
+    const res=await fetch(`/api/display-live?theme=${encodeURIComponent(theme)}`,{signal:ctl.signal});
+    clearTimeout(t);
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||!data.cellData) throw new Error(data.error||('HTTP '+res.status));
     const changed = data.generation!==curGen;
-    if(data.cellData) decodeCanvas(data.cellData);
+    decodeCanvas(data.cellData);
     curGen=data.generation||curGen;
-    curContribs=data.contributorCount||curContribs;
+    curContribs=data.contributorCount??curContribs;
     setStats(curGen, curContribs);
+    setMode('live');
     render();
     document.getElementById('loading').classList.add('gone');
     if(changed) showPulse();   // a real evolution arrived
+    try{ localStorage.setItem(CACHE_KEY, JSON.stringify({cellData:data.cellData,generation:curGen,contributorCount:curContribs})); }catch(e){}
   }catch(e){
-    // No server data yet — show a living full-spectrum demo field so the
-    // display is never blank, and keep trying.
-    if(curGen===0){
-      for(let i=0;i<WT;i++){
-        cells[i]={c:(Math.random()<0.5?'#0a0a14':`hsl(${Math.random()*360|0},60%,${10+Math.random()*35|0}%)`),s:0};
-      }
-      render();
-      document.getElementById('loading').classList.add('gone');
-      document.getElementById('pTheme').textContent=theme;
-      showPulse();
-    }
+    console.info('Live feed unavailable, using fallback:', e.message);
+    fallback();
   }
 }
 
@@ -328,12 +371,12 @@ function boot(){
   document.getElementById('pTheme').textContent=theme;
   document.getElementById('fTheme').textContent=theme;
   resize();
-  makeQR('floatQRcode',84);
+  makeQR('floatQRcode',140);
   makeQR('frameQRcode',168);
   fetchLive();
+  setTimeout(fallback, 4000);
   setInterval(fetchLive, 60000);            // server refresh
   setInterval(()=>{stepLocal();render();}, 2500); // gentle local life
-  startFloatQRCycle();
   if(startFramed) setFramed(true);
   wake();
 }

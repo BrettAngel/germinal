@@ -14,8 +14,9 @@ export async function onRequestPost(context){
   try{
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
     const body = await request.json();
-    const { theme='love', generation=1, parentId=null,
+    const { generation=1, parentId=null,
             cellData, stabMap, contributorId } = body;
+    const theme = String(body.theme||'love').toLowerCase().slice(0,40);
 
     if(!cellData) return new Response(JSON.stringify({error:'Missing cellData'}),{status:400,headers});
 
@@ -45,7 +46,7 @@ export async function onRequestPost(context){
     // Merge into mother display (best-effort)
     try{
       const { data:mother } = await supabase.from('mother_display')
-        .select('*').eq('theme', theme).single();
+        .select('*').eq('theme', theme).maybeSingle();
       if(!mother){
         await supabase.from('mother_display').insert({
           theme, generation:1, cell_data:cellData, contributor_count:1 });

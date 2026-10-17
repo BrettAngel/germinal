@@ -472,6 +472,68 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
   cursor:pointer;padding:12px;border:1px solid #333;border-radius:8px;
   touch-action:manipulation;transition:color .2s,border-color .2s;}
 .sim-skip:hover,.sim-skip:active{color:var(--dim);border-color:#555;}
+
+/* ══ PILOT READINESS: contrast, sizes, large-screen layout, kiosk ══ */
+:root{--dim:#9a93a6;}
+.hl .sub,.hs .l{font-size:10px;}
+.hs .v{font-size:16px;}
+#zlbl{font-size:11px;min-width:76px;}
+#themeIn{min-width:90px;}
+#tstrip label{font-size:11px;}
+.ob-step-n{font-size:11px;}
+.ob-step-t{font-size:11.5px;color:#cfc7b8;line-height:1.65;}
+.ob-card-title,.ob-rule-title{font-size:10.5px;color:var(--gold);}
+.ob-rule p{font-size:16px;color:#b8b0a2;}
+.ob-tag,.sim-tag{color:#b8b0a2;}
+#simStatus{font-size:11px;color:#b8b0a2;}
+.sim-disclosure p{color:#b8b0a2;}
+.tb .tl{font-size:9.5px;}
+.bid-note,.bc-bidder,.br-bidder{font-size:10px;}
+.contacts-box h3{font-size:10px;}
+#toast{font-size:13px;}
+.preview-tag{display:inline-block;margin-left:6px;padding:1px 6px;border:1px solid var(--gdim);
+  border-radius:4px;font-family:'Courier Prime',monospace;font-size:9px;letter-spacing:.15em;
+  color:var(--gold);vertical-align:middle;text-transform:uppercase;}
+.preview-banner{width:100%;margin:10px 0 16px;padding:12px 14px;border:1.5px dashed var(--gdim);
+  border-radius:10px;background:rgba(200,169,110,.06);font-family:'Courier Prime',monospace;
+  font-size:11px;line-height:1.6;color:#e0d6c2;letter-spacing:.03em;}
+.preview-banner b{color:var(--gold);font-weight:400;}
+/* Market/bidding is a design preview — hidden unless ?preview=1 */
+#t-mkt{display:none;}
+body.show-preview #t-mkt{display:flex;}
+@media (min-width:1000px){
+  .ob-inner{max-width:1080px;display:grid;grid-template-columns:1fr 1fr;gap:18px 28px;align-items:stretch;}
+  .ob-eye,.ob-h,.ob-tag,.ob-begin{grid-column:1/-1;justify-self:center;}
+  .ob-begin{max-width:520px;}
+  .ob-tag{max-width:720px;font-size:19px;}
+  .ob-card,.ob-rule{margin-bottom:0;}
+  .ob-step-t{font-size:13.5px;}
+  .ob-step-n{font-size:13px;width:26px;}
+  .ob-rule p{font-size:19px;}
+  .sim-inner{max-width:1160px;display:grid;grid-template-columns:1.35fr 1fr;gap:0 36px;}
+  .sim-eye,.sim-h,.sim-tag{grid-column:1/-1;}
+  .sim-tag{font-size:19px;}
+  #simCanvas,#simTeach,#simProgress,#simClockRow{grid-column:1;}
+  #simContribs{grid-column:2;grid-row:4 / span 4;max-height:60vh;overflow-y:auto;}
+  .sim-disclosure{grid-column:1/-1;}
+  .sim-disclosure p{font-size:18px;}
+  .sim-begin,.sim-skip{grid-column:1/-1;justify-self:center;max-width:520px;width:100%;}
+  #simStatus{font-size:12px;}
+}
+.sim-eye,.ob-eye{font-size:11px;}
+.sim-disclosure-title{font-size:10.5px;color:var(--gold);}
+.sim-disclosure p em{color:var(--gold);}
+.sim-skip{font-size:11px;color:#b8b0a2;}
+.sf-detail,.sf-label{font-size:11px;}
+#affinLabel{font-size:11px;}
+#revealBanner{font-size:11px;}
+/* Kiosk mode (?kiosk=1): big touch targets, no market/share */
+body.kiosk .tb{min-width:72px;min-height:64px;}
+body.kiosk .tb .ti{font-size:22px;}
+body.kiosk .tb .tl{font-size:12px;}
+body.kiosk #evoBtn{height:48px;padding:0 22px;font-size:14px;}
+body.kiosk #t-mkt,body.kiosk #t-share,body.kiosk #t-auto{display:none !important;}
+body.kiosk .hs .v{font-size:20px;}
 </style>
 </head>
 <body>
@@ -615,9 +677,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
       <div class="sub" id="hdrSub">Zoom · Lasso · Evolve · Share</div>
     </div>
     <div id="hud">
-      <div class="hs"><span class="v" id="hudG">1</span><span class="l">gen</span></div>
+      <div class="hs" id="hsGen" title="Canvas generation. Genesis generations run before you arrive; each Evolve adds one."><span class="v" id="hudG">1</span><span class="l">gen</span></div>
       <div class="hs"><span class="v" id="hudS">0</span><span class="l">locked</span></div>
-      <div class="hs"><span class="v" id="hudA">0</span><span class="l">affinity</span></div>
+      <div class="hs" title="Your affinity points. Lassoing alone scores nothing; points are earned when you press Evolve and your selected pixels survive."><span class="v" id="hudA">0</span><span class="l">affinity pts</span></div>
     </div>
   </div>
 
@@ -636,7 +698,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
     </div>
     <canvas id="lassoC"></canvas>
     <div id="lassoHint"></div>
-    <div id="revealBanner">◎ Reveal on — all prior selections visible including genesis</div>
+    <div id="revealBanner">◎ History on — you are now seeing earlier contributors’ selections (including the simulated genesis)</div>
     <div id="scoreFlash">
       <div class="sf-delta" id="sfDelta">+0</div>
       <div class="sf-label">affinity</div>
@@ -674,7 +736,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
       <span class="ti">✦</span><span class="tl">Score</span>
     </button>
     <button class="tb gold-btn" id="t-mkt" onclick="openMarket()">
-      <span class="ti">◈</span><span class="tl">Market</span>
+      <span class="ti">◈</span><span class="tl">Market·Preview</span>
     </button>
     <button class="tb gold-btn" id="t-share" onclick="openShare()">
       <span class="ti">⇗</span><span class="tl">Share</span>
@@ -722,11 +784,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
     </div>
 
     <div class="card">
-      <h3>Profit share</h3>
+      <h3>Profit share <span class="preview-tag">Illustrative</span></h3>
       <div class="row"><span class="rk">Your affinity</span><span class="rv" id="psScore">0</span></div>
       <div class="row"><span class="rk">Network total (simulated)</span><span class="rv" id="psNet">—</span></div>
-      <div class="row"><span class="rk">Your share</span><span class="rv" id="psShare">—</span></div>
-      <div class="row"><span class="rk">Est. on $50 print</span><span class="rv" id="psEst">—</span></div>
+      <div class="row"><span class="rk">Your share (illustrative)</span><span class="rv" id="psShare">—</span></div>
+      <div class="row"><span class="rk">Est. on $50 print (not a real payout)</span><span class="rv" id="psEst">—</span></div>
     </div>
 
     <div class="card">
@@ -756,7 +818,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
   <div class="p-handle" onclick="closeMarket()"></div>
   <button class="p-close" onclick="closeMarket()">✕</button>
   <div class="p-inner">
-    <div class="eyebrow">Marketplace</div>
+    <div class="eyebrow">Marketplace <span class="preview-tag">Preview</span></div>
+    <div class="preview-banner"><b>Design preview, not live.</b> No real auctions, bids, sales or payouts happen here yet.
+      Bids shown are only ones you enter on this device; dates, timers and pool amounts are illustrative.</div>
     <div class="headline">Bid on a moment in<br><em>collective memory</em></div>
     <div class="subhead">
       Each canvas state is unique and unrepeatable.
@@ -794,10 +858,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
             <div class="ac-title" id="acTitle">Love · 14 Feb 2026</div>
             <div style="font-family:'Cormorant Garamond',serif;font-style:italic;
               font-size:13px;color:var(--dim);margin-top:3px;" id="acDesc">
-              Generation 42 · 847 contributors
+              Illustrative preview
             </div>
           </div>
-          <div class="ac-status live" id="acStatus">● Live</div>
+          <div class="ac-status live" id="acStatus">Preview</div>
         </div>
 
         <!-- Countdown -->
@@ -1048,7 +1112,21 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
 // WORLD  900 × 660 cells · CS=2px
 // ═══════════════════════════════════════════════════════════════════
 const CS=2,WC=900,WR=660,WW=WC*CS,WH=WR*CS,WT=WC*WR;
-const NETWORK_SIM=1247; // simulated network size for profit share
+const NETWORK_SIM=1247; // simulated network size for profit share (labelled illustrative in UI)
+
+// ── Pilot readiness: modes & persistence ──
+const QS=new URLSearchParams(location.search);
+const KIOSK=QS.get('kiosk')==='1';
+const SHOW_PREVIEW=QS.get('preview')==='1';
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+if(KIOSK)document.body.classList.add('kiosk');
+if(SHOW_PREVIEW&&!KIOSK)document.body.classList.add('show-preview');
+if(QS.get('theme')){const ti=document.getElementById('themeIn');if(ti)ti.value=QS.get('theme').slice(0,40);}
+// Genesis runs scripted generations before the visitor arrives. Those must
+// not score for the visitor, and must stop mutating once they take over.
+let genesisAborted=false, genesisGenerations=0, userEra=false;
+function gsleep(ms){return new Promise((res,rej)=>setTimeout(()=>genesisAborted?rej(new Error('genesis-skipped')):res(),ms));}
 
 const vp=document.getElementById('vp'),world=document.getElementById('world');
 const cvs=document.getElementById('cvs'),ovl=document.getElementById('ovl');
@@ -1064,7 +1142,7 @@ let zoom=1,panX=0,panY=0;
 const ZMIN=0.05,ZMAX=10;
 function applyXform(){
   world.style.transform=`translate(${panX}px,${panY}px) scale(${zoom})`;
-  document.getElementById('zlbl').textContent=Math.round(zoom*100)+'%';
+  document.getElementById('zlbl').textContent='zoom '+Math.round(zoom*100)+'%';
 }
 function clamp(){
   const vw=vp.clientWidth,vh=vp.clientHeight,ww=WW*zoom,wh=WH*zoom;
@@ -1268,6 +1346,7 @@ function propPower(){
 }
 
 function scoreGeneration(){
+  if(!userEra)return;            // genesis generations never score for the visitor
   if(userOwnedCells.size===0)return;
 
   const n=userOwnedCells.size;
@@ -1356,7 +1435,7 @@ function scoreGeneration(){
       detail=`${released} cells dissolved · precision penalty applied`;
     }
     document.getElementById('sfDetail').textContent=detail;
-    clearTimeout(sf._t);sf._t=setTimeout(()=>sf.classList.remove('show'),2600);
+    clearTimeout(sf._t);sf._t=setTimeout(()=>sf.classList.remove('show'),1600);
   }
 
   // Show tolerance warning if too broad
@@ -1817,11 +1896,32 @@ function renderOvl(){
   requestAnimationFrame(renderOvl);
 }
 
+function refreshAffinityHud(){
+  const aEl=document.getElementById('hudA');
+  aEl.textContent=userScore.toLocaleString();
+  aEl.className='v'+(userScore>0?' positive':userScore<0?' negative':'');
+  const fill=document.getElementById('affinFill');if(fill)fill.style.width=Math.min(100,Math.abs(userScore)/100)+'%';
+  const ap=document.getElementById('affinPts');if(ap){ap.textContent=(userScore>=0?'+':'')+userScore+' pts';}
+}
+// Called once when the visitor takes over the canvas (after genesis, skip,
+// quick start or a share link). Freezes genesis and zeroes visitor scoring.
+function beginUserEra(){
+  if(userEra)return;
+  userEra=true;genesisAborted=true;
+  genesisGenerations=generation;
+  userOwnedCells=new Set();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];
+  const sf=document.getElementById('scoreFlash');if(sf){clearTimeout(sf._t);sf.className='';}
+  refreshAffinityHud();updateStats();
+  lsSet('germinal_genesis_seen','1');
+}
 function updateStats(){
   const sc=stabCount(),s2=cells.filter(c=>c.s===2).length,s3=cells.filter(c=>c.s===3).length;
   document.getElementById('hudG').textContent=generation.toLocaleString();
+  const hg=document.getElementById('hsGen');
+  if(hg)hg.title=`Canvas generation ${generation}. ${genesisGenerations} ran before you arrived (genesis or earlier contributors); each Evolve adds one.`;
   document.getElementById('hudS').textContent=sc.toLocaleString();
-  let sub=sc>0?`Gen ${generation} · ${sc.toLocaleString()} stabilised`:'Zoom · Lasso · Evolve · Share';
+  const mine=userEra?generation-genesisGenerations:0;
+  let sub=sc>0?`Gen ${generation}${mine>0?` · ${mine} evolve${mine===1?'':'s'} by you`:''} · ${sc.toLocaleString()} stabilised`:'Zoom · Lasso · Evolve · Share';
   if(s2+s3>0)sub+=` · ${(s2+s3).toLocaleString()} refined`;
   document.getElementById('hdrSub').textContent=sub;
 }
@@ -2168,6 +2268,8 @@ const RESERVE=49,INCREMENT=5,SNIPE_WINDOW=600000,SNIPE_EXTEND=600000;
 function fmtDate(d){return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
 
 function simulateBids(dateStr){
+  return []; // pilot: never show invented bidders/bids
+
   const seed=dateStr.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
   const n=seed%6;const bids=[];let amount=RESERVE;
   const bidders=['Anonymous','A.K.','M.R.','collector_7','0x4f2a…','art_lover'];
@@ -2231,7 +2333,7 @@ function updateAuctionCard(){
   const minNext=auctionBids.length>0?topBid+INCREMENT:RESERVE;
   const el=id=>document.getElementById(id);
   if(el('acTitle'))el('acTitle').textContent=theme.charAt(0).toUpperCase()+theme.slice(1)+' · '+fmtDate(mktDate);
-  if(el('acDesc'))el('acDesc').textContent='Generation '+generation+' · '+Math.floor(generation*12+47)+' contributors';
+  if(el('acDesc'))el('acDesc').textContent='Generation '+generation+' · illustrative preview';
   if(el('bcAmount'))el('bcAmount').textContent='$'+topBid;
   if(el('bcBidder'))el('bcBidder').textContent=auctionBids.length>0?'Leading: '+auctionBids[0].bidder:'Reserve price — no bids yet';
   if(el('bcCount'))el('bcCount').textContent=auctionBids.length;
@@ -2375,7 +2477,7 @@ YOUR TURN:
 3. Lasso what feels like "${theme}" — small and precise beats large and vague
 4. Press Evolve
 5. Press ◎ History to see what came before
-6. Share with ${sendN} of your contacts
+6. Share with ${sendN} ${sendN===1?'person':'people'}
 
 🧬 germinal.studio`;
 }
@@ -2386,7 +2488,7 @@ window.updateProp=function(){
   const contacts=parseInt(document.getElementById('contactSlider').value)||100;
   const pwr=propPower();const sendN=Math.max(1,Math.round(contacts*pwr));
   document.getElementById('csSendN').textContent=sendN;
-  document.getElementById('csSendNx').textContent=sendN+' contacts';
+  document.getElementById('csSendNx').textContent=sendN+(sendN===1?' contact':' contacts');
   document.getElementById('csTot').textContent=contacts;
   const ta=document.getElementById('msgText');if(!ta._edited)ta.value=buildMsg();
   updateShareHrefs();
@@ -2803,7 +2905,7 @@ async function runGenesis(){
       simZoom.cy=0.5+(simZoom.cy-0.5)*(1-(s/steps));
       if(evolveFn) await evolveFn(s);
       updateSimCanvas();
-      await new Promise(r=>setTimeout(r,180)); // the "staccato" hold per step
+      await gsleep(180); // the "staccato" hold per step
     }
   }
   // Teaching caption — quiet, mechanic-only guidance. Never names a colour
@@ -2812,11 +2914,11 @@ async function runGenesis(){
   async function teach(html, holdMs){
     teachEl.innerHTML=html;
     teachEl.classList.add('show');
-    await new Promise(r=>setTimeout(r, holdMs||2600));
+    await gsleep(holdMs||2600);
   }
   async function teachClear(){
     teachEl.classList.remove('show');
-    await new Promise(r=>setTimeout(r,700));
+    await gsleep(700);
   }
   // Trace a selected region as a glowing outline on the sim thumbnail,
   // so the viewer SEES what "a selection" is — the gesture, not the content.
@@ -2843,7 +2945,7 @@ async function runGenesis(){
     simCtx.lineWidth=1.5;
     simCtx.setLineDash([4,3]);
     simCtx.strokeRect(minX*sw-2,minY*sh-2,(maxX-minX)*sw+4,(maxY-minY)*sh+4);
-    await new Promise(r=>setTimeout(r, holdMs||1400));
+    await gsleep(holdMs||1400);
   }
   function setStatus(msg,pct){
     statusEl.textContent=msg;fillEl.style.width=pct+'%';updateSimCanvas();
@@ -2914,7 +3016,7 @@ async function runGenesis(){
     }
     if(g===26) await teach('Order strains to form… and is lost.', 2000);
     if(g===44) await teach('Almost. <em>Not yet.</em>', 1700);
-    await new Promise(r=>setTimeout(r, 70));
+    await gsleep(70);
   }
   await teachClear();
 
@@ -2922,8 +3024,8 @@ async function runGenesis(){
   // Let everything currently flaring die; the field falls toward dark.
   for(const sp of voidSparks){ sp.held=false; sp.maxLife=Math.min(sp.maxLife, sp.life+1); }
   for(let q=0;q<3;q++){ stepStrugglingVoid(0); renderAll();updateSimCanvas();
-    setStatus('…', 18); await new Promise(r=>setTimeout(r,200)); }
-  await new Promise(r=>setTimeout(r,600));
+    setStatus('…', 18); await gsleep(200); }
+  await gsleep(600);
 
   // One improbable flicker is CAUGHT and HELD. The clock stops.
   const igX=Math.round(WC*0.70), igY=Math.round(WR*0.22);
@@ -2935,7 +3037,7 @@ async function runGenesis(){
     simCvs.style.boxShadow='0 0 40px rgba(255,210,130,0.6)'; }
   addLabel('✦  one point holds  ✦',true);
   await teach('Against vast odds, one point holds.', 2600);
-  await new Promise(r=>setTimeout(r,500));
+  await gsleep(500);
 
   // ── BEAT 3: ZOOMED STACCATO GENESIS ──
   // Zoom DEEP into the held spark so pixel-blocks are large and legible;
@@ -2952,7 +3054,7 @@ async function runGenesis(){
     stepCascade(igX, igY, (step+1)*3, 0.4);
     renderAll();updateSimCanvas();
     setStatus(`Generation ${generation} — the first order refines…`, 20);
-    await new Promise(r=>setTimeout(r,140));
+    await gsleep(140);
   }
 
   // ── THE VORTEX CRESCENDO ──
@@ -2989,10 +3091,10 @@ async function runGenesis(){
   for(let step=0; step<5; step++){
     stepCascade(igX, igY, maxR*1.2, 1.4);
     renderAll();updateSimCanvas();
-    await new Promise(r=>setTimeout(r,40));
+    await gsleep(40);
   }
   await teachClear();
-  await new Promise(r=>setTimeout(r,250));
+  await gsleep(250);
 
   // ── THE GENESIS MOMENT (teaching) ──
   // Warm colours — the first bot seeks any warmth in the dark field
@@ -3056,7 +3158,7 @@ async function runGenesis(){
   // Then "evolve" — the rules carry the composition forward
   await teach('Then you let go — and the rules <em>carry it forward</em>.', 2600);
   for(let s=0;s<6;s++){ stepGen(); renderAll();updateSimCanvas();
-    drawClock(0.5); await new Promise(r=>setTimeout(r,120)); }
+    drawClock(0.5); await gsleep(120); }
 
   // Zoom back out for context
   await simZoomTo(0.5,0.5,1,1100);
@@ -3080,7 +3182,7 @@ async function runGenesis(){
     });
     contributors.push(contrib);
     renderAll();updateSimCanvas();
-    await new Promise(r=>setTimeout(r,40));
+    await gsleep(40);
   }
 
   // ── PHASE 2: PRIMORDIAL SEEDING ──
@@ -3102,7 +3204,7 @@ async function runGenesis(){
     const pct=32+Math.round((i/9)*20);
     setStatus(`Primordial seeding · Gen ${generation}…`,pct);
     renderAll();updateSimCanvas();
-    await new Promise(r=>setTimeout(r,30));
+    await gsleep(30);
   }
 
   // ── PHASE 3: ADAPTIVE RADIATION ──
@@ -3122,7 +3224,7 @@ async function runGenesis(){
     const pct=54+Math.round((i/9)*18);
     setStatus(`Adaptive radiation · Gen ${generation}…`,pct);
     renderAll();updateSimCanvas();
-    await new Promise(r=>setTimeout(r,30));
+    await gsleep(30);
   }
 
   // ── PHASE 4: HIGH-AFFINITY MATURATION ──
@@ -3142,27 +3244,27 @@ async function runGenesis(){
     const pct=73+Math.round((i/8)*14);
     setStatus(`High-affinity maturation · Gen ${generation}…`,pct);
     renderAll();updateSimCanvas();
-    await new Promise(r=>setTimeout(r,30));
+    await gsleep(30);
   }
 
   // Score and display
   setStatus('Scoring evolutionary contributions…',90);
-  await new Promise(r=>setTimeout(r,60));
+  await gsleep(60);
   const scored=scoreSimContributors(contributors);
   scored.sort((a,b)=>b.score-a.score);
   scored.slice(0,8).forEach(c=>addCard(c,true));
   if(scored.length>8){
     const m=document.createElement('div');
     m.style.cssText='font-family:\'Courier Prime\',monospace;font-size:8px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);text-align:center;padding:8px;';
-    m.textContent=`+ ${scored.length-8} further contributors in history`;
+    m.textContent=`+ ${scored.length-8} further simulated genesis contributors`;
     contribsEl.appendChild(m);
   }
 
-  setStatus(`Generation ${generation} · ${contributors.length} contributors · Canvas primed`,100);
+  setStatus(`Generation ${generation} · ${contributors.length} simulated contributors · Canvas primed`,100);
   archiveState();renderAll();updateSimCanvas();
 
   await teach('Now it is your turn. <em>Small and precise travels further than large and vague.</em>', 3000);
-  await new Promise(r=>setTimeout(r,200));
+  await gsleep(200);
   document.getElementById('simBeginBtn').classList.add('ready');
   document.getElementById('simPanel').scrollTo({top:99999,behavior:'smooth'});
   attachSimButtons();
@@ -3178,6 +3280,7 @@ function hidePanel(id){
 
 window.dismissSim=function(){
   hidePanel('simPanel');
+  beginUserEra();
   // Show onboarding only if never seen before
   if(!localStorage.getItem('la_onboarded')){
     const ob=document.getElementById('onboard');
@@ -3186,6 +3289,9 @@ window.dismissSim=function(){
 };
 window.skipSim=function(){
   hidePanel('simPanel');
+  genesisAborted=true;            // stop the scripted genesis loop
+  if(generation<40){for(let k=0;k<20;k++)stepGenFast();renderAll();}
+  beginUserEra();
   if(!localStorage.getItem('la_onboarded')){
     const ob=document.getElementById('onboard');
     ob.style.display='flex';ob.style.opacity='1';ob.style.pointerEvents='auto';
@@ -3417,7 +3523,7 @@ ${shareUrl}
 
 The canvas will open completely unbiased — you won't see what I chose until after you've made your own selection. That independence is what makes your contribution meaningful.
 
-Zoom in, lasso what feels like "${theme}" to you, press Evolve, then share with ${sendN} of your contacts.
+Zoom in, lasso what feels like "${theme}" to you, press Evolve, then share with ${sendN} ${sendN===1?'person':'people'}.
 
 The more precisely you select, the further your version travels. 🧬
 germinal.studio`;
@@ -3444,11 +3550,15 @@ if(localStorage.getItem('la_onboarded')){
 
 // Check if this is a share link — if so, load canvas and skip genesis
 checkShareUrl().then(isShare => {
-  if(!isShare){
+  if(!isShare && (KIOSK || lsGet('germinal_genesis_seen'))){
+    quickStart();
+  } else if(!isShare){
     // Fresh canvas — start genesis immediately.
     // runGenesis begins with the void phase (stepGenFast) so we don't
     // need any pre-loop here. A short delay lets the first paint settle.
     setTimeout(()=>{ runGenesis().catch(err=>{
+      if(err&&err.message==='genesis-skipped')return; // visitor skipped — expected
+      beginUserEra();
       // If genesis ever throws, don't trap the user on a black screen —
       // dismiss the panel and let them use the canvas.
       console.error('Genesis error:',err);
@@ -3459,6 +3569,7 @@ checkShareUrl().then(isShare => {
     }); }, 200);
   } else {
     // Loaded from share link — show canvas immediately
+    beginUserEra();
     renderOvl();updatePropHUD && updatePropHUD();
     archiveState();
     showToast('Zoom in · Lasso what resonates · Evolve');
@@ -3467,11 +3578,39 @@ checkShareUrl().then(isShare => {
   // checkShareUrl failed (e.g. network) — fall back to genesis
   console.error('Share check error:',err);
   setTimeout(()=>{ runGenesis().catch(()=>{
+    beginUserEra();
     const sp=document.getElementById('simPanel');
     if(sp){sp.style.display='none';}
     renderAll();updateStats();
   }); }, 200);
 });
+
+// Returning visitors and kiosks skip genesis + onboarding and go straight to
+// the canvas, starting from the shared live canvas when available.
+async function quickStart(){
+  document.getElementById('simPanel').classList.add('done');
+  document.getElementById('onboard').classList.add('done');
+  let loaded=false;
+  try{
+    const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),2500);
+    const theme=(document.getElementById('themeIn').value||'love').toLowerCase();
+    const r=await fetch(`${API}/display-live?theme=${encodeURIComponent(theme)}`,{signal:ctl.signal});
+    clearTimeout(t);
+    if(r.ok){const d=await r.json();
+      if(d&&d.cellData&&decodeFromServer(d.cellData)){generation=Math.max(1,d.generation||1);loaded=true;}}
+  }catch(e){/* offline or no live canvas yet — fall back to local priming */}
+  if(!loaded){for(let k=0;k<30;k++){stepGenFast();if(k%5===4)await new Promise(r=>setTimeout(r,0));}}
+  renderAll();beginUserEra();
+  showToast(KIOSK?'Drag to lasso what resonates · then press Evolve':'Welcome back — Zoom · Lasso · Evolve');
+}
+
+// Kiosk: return to a fresh canvas after 90s with no interaction
+if(KIOSK){
+  let kioskIdle=null;
+  const kick=()=>{clearTimeout(kioskIdle);kioskIdle=setTimeout(()=>location.reload(),90000);};
+  ['pointerdown','touchstart','keydown','wheel'].forEach(ev=>window.addEventListener(ev,kick,{passive:true}));
+  kick();
+}
 
 function updatePropHUD(){
   const pct=Math.round(propPower()*100);
