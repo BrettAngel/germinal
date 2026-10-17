@@ -150,7 +150,10 @@ body.demo #demoNote{display:block;}
 // Theme-aware via ?theme=. Decodes the same RGB555 format the app saves.
 // ═══════════════════════════════════════════════════════════════════
 const CS=2, WC=900, WR=660, WW=WC*CS, WH=WR*CS, WT=WC*WR;
-const theme=(new URLSearchParams(location.search).get('theme')||'love').toLowerCase();
+// Same theme rules as the API (lib/validate.js), so odd ?theme= values don't 400.
+const theme=(String(new URLSearchParams(location.search).get('theme')||'').toLowerCase()
+  .normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 \-]+/g,' ')
+  .replace(/\s+/g,' ').trim().slice(0,40).trim())||'love';
 const startFramed=new URLSearchParams(location.search).get('frame')==='1';
 
 const cvs=document.getElementById('display');

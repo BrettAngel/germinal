@@ -1,5 +1,6 @@
 // Cloudflare Pages Function — GET /api/canvas-load/:id
 import { createClient } from '@supabase/supabase-js';
+import { validateShareId } from '../../../lib/validate.js';
 
 export async function onRequestGet(context){
   const { params, env } = context;
@@ -9,6 +10,7 @@ export async function onRequestGet(context){
   };
   const shareId = params.id;
   if(!shareId) return new Response(JSON.stringify({error:'No share id'}),{status:400,headers});
+  if(!validateShareId(shareId).ok) return new Response(JSON.stringify({error:'Invalid share id'}),{status:400,headers});
   try{
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
     const { data, error } = await supabase

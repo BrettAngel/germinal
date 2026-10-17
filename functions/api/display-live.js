@@ -9,6 +9,7 @@
 // theme (which is the case until someone saves a canvas), so live.html sat on
 // "The canvas is waking…". It also used .single(), which errors on 0 rows.
 import { createClient } from '@supabase/supabase-js';
+import { validateTheme } from '../../lib/validate.js';
 
 export async function onRequestGet(context){
   const { request, env } = context;
@@ -18,8 +19,10 @@ export async function onRequestGet(context){
     'Cache-Control':'public, max-age=30',
   };
   const url = new URL(request.url);
-  const theme = (url.searchParams.get('theme') || 'love').toLowerCase().slice(0,40);
   const json = (obj, status=200) => new Response(JSON.stringify(obj), { status, headers });
+  const t = validateTheme(url.searchParams.get('theme'));
+  if(!t.ok) return json({ empty:true, error:t.error }, 400);
+  const theme = t.value;
 
   if(!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY){
     return json({ theme, empty:true, error:'Server not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing)' }, 503);
