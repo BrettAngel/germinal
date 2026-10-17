@@ -498,9 +498,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
   border-radius:10px;background:rgba(200,169,110,.06);font-family:'Courier Prime',monospace;
   font-size:11px;line-height:1.6;color:#e0d6c2;letter-spacing:.03em;}
 .preview-banner b{color:var(--gold);font-weight:400;}
-/* Market/bidding is a design preview — hidden unless ?preview=1 */
-#t-mkt{display:none;}
-body.show-preview #t-mkt{display:flex;}
+/* HONESTY PASS (Oct 2026): market/auction/bidding is parked (Strategy v2 §4).
+   The Market button is hidden for everyone, including ?preview=1. To restore,
+   remove the `hidden` attribute on #t-mkt/#mktPanel and re-add:
+   body.show-preview #t-mkt{display:flex;} */
+#t-mkt{display:none !important;}
 @media (min-width:1000px){
   .ob-inner{max-width:1080px;display:grid;grid-template-columns:1fr 1fr;gap:18px 28px;align-items:stretch;}
   .ob-eye,.ob-h,.ob-tag,.ob-begin{grid-column:1/-1;justify-self:center;}
@@ -735,7 +737,8 @@ body.kiosk .hs .v{font-size:20px;}
     <button class="tb" id="t-score" onclick="openScore()">
       <span class="ti">✦</span><span class="tl">Score</span>
     </button>
-    <button class="tb gold-btn" id="t-mkt" onclick="openMarket()">
+    <!-- HONESTY PASS: Market (auctions/bids/20% pool) hidden while parked -->
+    <button class="tb gold-btn" id="t-mkt" onclick="openMarket()" hidden>
       <span class="ti">◈</span><span class="tl">Market·Preview</span>
     </button>
     <button class="tb gold-btn" id="t-share" onclick="openShare()">
@@ -783,7 +786,10 @@ body.kiosk .hs .v{font-size:20px;}
       <div id="precisionInfo"></div>
     </div>
 
-    <div class="card">
+    <!-- HONESTY PASS (Oct 2026): profit share used a simulated network size
+         (NETWORK_SIM) and an invented payout estimate. Hidden while the contributor
+         payout is parked; openScore() no longer fills these simulated figures. -->
+    <div class="card" id="profitShareCard" hidden>
       <h3>Profit share <span class="preview-tag">Illustrative</span></h3>
       <div class="row"><span class="rk">Your affinity</span><span class="rv" id="psScore">0</span></div>
       <div class="row"><span class="rk">Network total (simulated)</span><span class="rv" id="psNet">—</span></div>
@@ -808,13 +814,14 @@ body.kiosk .hs .v{font-size:20px;}
       <div class="ll-item"><div class="ll-dot" style="background:var(--gold)"></div>Your branch</div>
       <div class="ll-item"><div class="ll-dot" style="background:var(--green)"></div>Validated</div>
       <div class="ll-item"><div class="ll-dot" style="background:rgba(192,80,80,.5)"></div>Dissolved</div>
-      <div class="ll-item"><div class="ll-dot" style="background:#444"></div>Unknown branches</div>
     </div>
   </div>
 </div>
 
 <!-- ══ MARKETPLACE / AUCTION PANEL ══ -->
-<div class="panel" id="mktPanel">
+<!-- HONESTY PASS (Oct 2026): auction / bidding / 20% creator-pool panel hidden while
+     parked (Strategy v2 §4). Kept in the markup so it can be restored; nothing opens it. -->
+<div class="panel" id="mktPanel" hidden>
   <div class="p-handle" onclick="closeMarket()"></div>
   <button class="p-close" onclick="closeMarket()">✕</button>
   <div class="p-inner">
@@ -1112,7 +1119,8 @@ body.kiosk .hs .v{font-size:20px;}
 // WORLD  900 × 660 cells · CS=2px
 // ═══════════════════════════════════════════════════════════════════
 const CS=2,WC=900,WR=660,WW=WC*CS,WH=WR*CS,WT=WC*WR;
-const NETWORK_SIM=1247; // simulated network size for profit share (labelled illustrative in UI)
+// HONESTY PASS: removed NETWORK_SIM (a hard-coded, simulated network size used
+// only by the hidden profit-share card).
 
 // ── Pilot readiness: modes & persistence ──
 const QS=new URLSearchParams(location.search);
@@ -2177,15 +2185,8 @@ function drawLineage(){
       if(log.delta>0){color='var(--green)';r=5+Math.min(4,log.delta/5);}
       else if(log.delta<0){color='var(--red)';r=5;}
     }
-    // Simulated side branches
-    if(g>1&&Math.random()<.4){
-      const by=centerY+(Math.random()>.5?1:-1)*30;
-      lx.strokeStyle='rgba(68,68,68,0.5)';lx.lineWidth=1;
-      lx.setLineDash([2,3]);
-      lx.beginPath();lx.moveTo(x,centerY);lx.lineTo(x+nodeW,by);lx.stroke();
-      lx.setLineDash([]);
-      lx.fillStyle='#444';lx.beginPath();lx.arc(x+nodeW,by,3,0,Math.PI*2);lx.fill();
-    }
+    // HONESTY PASS: removed randomly drawn "side branch" nodes (they implied
+    // other people's branches that do not exist in any data).
     lx.fillStyle=color;lx.beginPath();lx.arc(x,centerY,r,0,Math.PI*2);lx.fill();
     if(g<=maxGen){
       lx.fillStyle='rgba(200,169,110,0.5)';lx.font='8px Courier Prime, monospace';
@@ -2210,15 +2211,8 @@ window.openScore=function(){
   document.getElementById('scoreSub').textContent=
     `across ${generationLog.length} generations`;
 
-  // Precision stats
-  document.getElementById('psScore').textContent=total+' pts';
-  document.getElementById('psNet').textContent=(NETWORK_SIM*40+Math.abs(total)).toLocaleString()+' pts';
-  const share=Math.max(0,total)/(NETWORK_SIM*40+Math.abs(total));
-  document.getElementById('psShare').textContent=(share*100).toFixed(3)+'%';
-  const est=share*10;
-  const estEl=document.getElementById('psEst');
-  estEl.textContent='$'+est.toFixed(2);
-  estEl.className='rv'+(est>0?' pos':' neg');
+  // HONESTY PASS: the profit-share card (simulated network total, illustrative
+  // share and payout estimate) is hidden and no longer computed.
 
   // Generation dots
   const dots=document.getElementById('genDots');dots.innerHTML='';

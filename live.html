@@ -80,6 +80,11 @@ body.framed #floatQR{opacity:0;}
   font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,224,208,.7);
   background:rgba(6,6,15,.55);padding:6px 10px;border-radius:6px;display:none;}
 body.demo #demoNote{display:block;}
+/* HONESTY PASS: generation / contribution counts are only shown when they come
+   from the server (live) or from this screen's last real fetch (cached). In the
+   local simulation there is no real number, so the stats are hidden. */
+body.sim .real-stat{display:none !important;}
+.no-count{display:none !important;}
 /* Narrow screens: lift the status pill above the QR card so they never overlap */
 @media (max-width:760px){
   #pulse{bottom:calc(24px + 96px + 60px);max-width:calc(100vw - 32px);gap:10px;padding:10px 16px;}
@@ -112,10 +117,10 @@ body.demo #demoNote{display:block;}
 <!-- pure-art event overlay -->
 <div id="pulse">
   <span class="p-theme">"<em id="pTheme">love</em>"</span>
-  <span class="p-sep"></span>
-  <span class="p-stat">Gen <b id="pGen">—</b></span>
-  <span class="p-sep"></span>
-  <span class="p-stat"><b id="pContribs">—</b> contributors</span>
+  <span class="p-sep real-stat"></span>
+  <span class="p-stat real-stat">Gen <b id="pGen">—</b></span>
+  <span class="p-sep real-stat" id="pContribsSep"></span>
+  <span class="p-stat real-stat" id="pContribsWrap"><b id="pContribs">—</b> contributions</span>
 </div>
 
 <!-- floating QR (pure-art mode) -->
@@ -128,8 +133,8 @@ body.demo #demoNote{display:block;}
   <div class="f-name">Germinal</div>
   <div class="f-theme">"<em id="fTheme">love</em>"</div>
   <div class="f-stats">
-    <div class="f-stat"><span class="v" id="fGen">—</span><span class="l">generation</span></div>
-    <div class="f-stat"><span class="v" id="fContribs">—</span><span class="l">contributors</span></div>
+    <div class="f-stat real-stat"><span class="v" id="fGen">—</span><span class="l">generation</span></div>
+    <div class="f-stat real-stat" id="fContribsWrap"><span class="v" id="fContribs">—</span><span class="l">contributions</span></div>
   </div>
   <div class="f-qr"><div id="frameQRcode"></div></div>
   <div class="f-scan"><b>Scan to join</b><br>add your eye to the canvas</div>
@@ -252,9 +257,17 @@ function showPulse(){
 
 function setStats(gen, contribs){
   document.getElementById('pGen').textContent=(gen||0).toLocaleString();
-  document.getElementById('pContribs').textContent=(contribs||0).toLocaleString();
   document.getElementById('fGen').textContent=(gen||0).toLocaleString();
-  document.getElementById('fContribs').textContent=(contribs||0).toLocaleString();
+  // Contribution count comes from /api/display-live (contributorCount). If the
+  // server did not provide a number, hide it rather than show a made-up one.
+  const has = typeof contribs==='number' && isFinite(contribs);
+  ['pContribsWrap','pContribsSep','fContribsWrap'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.classList.toggle('no-count', !has);
+  });
+  if(has){
+    document.getElementById('pContribs').textContent=contribs.toLocaleString();
+    document.getElementById('fContribs').textContent=contribs.toLocaleString();
+  }
 }
 
 // ── Server fetch, with graceful fallback ──
@@ -267,6 +280,7 @@ function setMode(m){
   document.getElementById('demoNote').textContent =
     m==='cached' ? 'Offline · showing the last saved canvas' : 'Simulation · waiting for the first saved canvas';
   document.body.classList.toggle('demo', m!=='live');
+  document.body.classList.toggle('sim', m==='demo'); // no real numbers to show
 }
 function seedDemo(){
   for(let i=0;i<WT;i++){
@@ -278,14 +292,10 @@ function fallback(){
   let cached=null;
   try{ cached=JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); }catch(e){}
   if(cached&&cached.cellData&&decodeCanvas(cached.cellData)){
-    curGen=cached.generation||0; curContribs=cached.contributorCount||0;
+    curGen=cached.generation||0; curContribs=(typeof cached.contributorCount==='number')?cached.contributorCount:null;
     setStats(curGen,curContribs); setMode('cached');
   }else{
-    seedDemo(); setMode('demo');
-    document.getElementById('pGen').textContent='—';
-    document.getElementById('fGen').textContent='—';
-    document.getElementById('pContribs').textContent='0';
-    document.getElementById('fContribs').textContent='0';
+    seedDemo(); setMode('demo'); // stats hidden via body.sim (no real data)
   }
   render();
   document.getElementById('loading').classList.add('gone');
@@ -301,7 +311,7 @@ async function fetchLive(){
     const changed = data.generation!==curGen;
     decodeCanvas(data.cellData);
     curGen=data.generation||curGen;
-    curContribs=data.contributorCount??curContribs;
+    curContribs=(typeof data.contributorCount==='number')?data.contributorCount:null;
     setStats(curGen, curContribs);
     setMode('live');
     render();
