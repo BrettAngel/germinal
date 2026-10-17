@@ -110,6 +110,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
   letter-spacing:.2em;text-transform:uppercase;color:var(--gold);
   pointer-events:none;z-index:15;opacity:0;transition:opacity .3s;white-space:nowrap;}
 #revealBanner.show{opacity:1;}
+@media (max-width:700px){#revealBanner{white-space:normal;width:max-content;max-width:92%;text-align:center;line-height:1.5;}}
 
 /* ── Affinity HUD ── */
 #affinHud{position:absolute;bottom:6px;left:10px;right:10px;z-index:12;pointer-events:none;}
@@ -503,6 +504,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
    remove the `hidden` attribute on #t-mkt/#mktPanel and re-add:
    body.show-preview #t-mkt{display:flex;} */
 #t-mkt{display:none !important;}
+#mktPanel{display:none!important;} /* belt-and-braces: market panel stays hidden even if openMarket() runs */
+.ob-links{grid-column:1/-1;text-align:center;margin-top:14px;font-family:'Courier Prime',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6a6a78;}
+.ob-links a{color:#9a9aa8;text-decoration:none;}
+.ob-links a:hover,.ob-links a:focus{color:var(--gold);}
 @media (min-width:1000px){
   .ob-inner{max-width:1080px;display:grid;grid-template-columns:1fr 1fr;gap:18px 28px;align-items:stretch;}
   .ob-eye,.ob-h,.ob-tag,.ob-begin{grid-column:1/-1;justify-self:center;}
@@ -668,6 +673,7 @@ body.kiosk .hs .v{font-size:20px;}
       ontouchend="event.preventDefault();dismissOnboard()">
       Begin — make your selection →
     </button>
+    <div class="ob-links"><a href="/how-it-works">How it works</a> · <a href="/privacy">Privacy</a></div>
   </div>
 </div>
 
@@ -700,7 +706,7 @@ body.kiosk .hs .v{font-size:20px;}
     </div>
     <canvas id="lassoC"></canvas>
     <div id="lassoHint"></div>
-    <div id="revealBanner">◎ History on — you are now seeing earlier contributors’ selections (including the simulated genesis)</div>
+    <div id="revealBanner">◎ History on — earlier selections shown · seed layers are computer-generated, not real visitors</div>
     <div id="scoreFlash">
       <div class="sf-delta" id="sfDelta">+0</div>
       <div class="sf-label">affinity</div>

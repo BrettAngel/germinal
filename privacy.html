@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy · Germinal</title>
+<meta name="description" content="What Germinal stores: shared canvas images and lineage. No accounts, no cookies, no trackers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Courier+Prime:ital@0;1&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--gold:#c8a96e;--gdim:#7a6030;--bg:#06060f;--brd:rgba(255,255,255,0.08);--txt:#d8d0c0;--dim:#9a9aa8;}
+body{background:var(--bg);color:var(--txt);font-family:"Cormorant Garamond",Georgia,serif;line-height:1.6;}
+a{color:var(--gold);}
+a:focus-visible{outline:2px solid var(--gold);outline-offset:3px;}
+.top{max-width:720px;margin:0 auto;padding:28px 24px 0;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
+.top a{font-family:"Courier Prime",monospace;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--gold);text-decoration:none;}
+.top nav a{letter-spacing:.14em;color:var(--dim);margin-left:16px;}
+.top nav a:hover,.top nav a[aria-current]{color:var(--gold);}
+main{max-width:720px;margin:0 auto;padding:56px 24px 40px;}
+.eye{font-family:"Courier Prime",monospace;font-size:11px;letter-spacing:.35em;text-transform:uppercase;color:var(--gold);margin-bottom:12px;}
+h1{font-size:clamp(36px,7vw,56px);font-weight:300;font-style:italic;color:#f4ecda;line-height:1.1;margin-bottom:18px;}
+.lede{font-size:clamp(19px,2.8vw,23px);font-weight:300;color:#e0d8c8;margin-bottom:40px;}
+h2{font-size:clamp(23px,3.6vw,29px);font-weight:400;color:#f0e8d8;line-height:1.25;margin:44px 0 14px;}
+p,li{font-size:18px;color:#c8c0b0;}
+p{margin-bottom:14px;}
+ul,ol{padding-left:22px;margin-bottom:14px;}
+li{margin-bottom:8px;}
+li b,p b{color:#f0e8d8;font-weight:500;}
+em{color:var(--gold);}
+code{font-family:"Courier Prime",monospace;font-size:15px;color:#e0d6c2;background:rgba(255,255,255,.05);padding:1px 5px;border-radius:4px;}
+.card{border:1px solid var(--brd);border-radius:14px;background:rgba(255,255,255,0.015);padding:20px 22px;margin:18px 0;}
+.card p:last-child,.card ul:last-child{margin-bottom:0;}
+.steps{list-style:none;padding:0;counter-reset:s;}
+.steps li{counter-increment:s;position:relative;padding-left:44px;margin-bottom:16px;}
+.steps li::before{content:counter(s,decimal-leading-zero);position:absolute;left:0;top:2px;font-family:"Courier Prime",monospace;font-size:13px;color:var(--gold);letter-spacing:.1em;}
+table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:17px;}
+th,td{text-align:left;vertical-align:top;padding:10px 10px 10px 0;border-bottom:1px solid var(--brd);color:#c8c0b0;}
+th{font-family:"Courier Prime",monospace;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);font-weight:400;}
+td:first-child{color:#f0e8d8;width:34%;}
+.small{font-size:15px;color:var(--dim);}
+.cta{display:inline-block;margin-top:10px;padding:14px 34px;border:2px solid var(--gold);border-radius:50px;background:rgba(200,169,110,0.12);color:var(--gold);font-family:"Courier Prime",monospace;font-size:12px;letter-spacing:.2em;text-transform:uppercase;text-decoration:none;}
+.cta:hover{background:rgba(200,169,110,0.24);}
+footer{border-top:1px solid var(--brd);padding:30px 24px;text-align:center;}
+footer p{font-family:"Courier Prime",monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#5a5a68;line-height:2.2;margin:0;}
+footer a{color:#8a8a98;text-decoration:none;}
+footer a:hover,footer a:focus{color:var(--gold);}
+</style>
+</head>
+<body>
+<header class="top">
+  <a href="/">germinal.studio</a>
+  <nav aria-label="Site"><a href="/how-it-works">How it works</a><a href="/privacy" aria-current="page">Privacy</a></nav>
+</header>
+<main>
+  <div class="eye">Privacy</div>
+  <h1>What Germinal stores.</h1>
+  <p class="lede">Short version: there are no accounts, no names, no email sign-up, no cookies set by Germinal and no advertising or analytics trackers. When you share a canvas, we store the picture and how it connects to other canvases. That's about it.</p>
+
+  <h2>When you share a canvas</h2>
+  <p>Using the canvas and pressing Evolve happens entirely on your device. Nothing is sent to us until you press <b>Share</b>. At that point, your browser sends us:</p>
+  <table>
+    <thead><tr><th scope="col">What</th><th scope="col">What it is</th></tr></thead>
+    <tbody>
+      <tr><td>The canvas image</td><td>The colour of every pixel, and whether each pixel is held by a selection.</td></tr>
+      <tr><td>The theme</td><td>The theme word or words for the canvas, such as “love”. Only lowercase letters, numbers, spaces and hyphens are kept.</td></tr>
+      <tr><td>The generation number</td><td>How many generations the canvas has been through.</td></tr>
+      <tr><td>Lineage</td><td>If you opened someone's share link first, the ID of the canvas you started from, so we can tell how canvases branch from each other.</td></tr>
+      <tr><td>A random device ID</td><td>A random code such as <code>dev_4k9x2m7q1b</code>, created by your browser the first time you share and kept in its local storage. It isn't linked to your name, email, phone number or any account. It just lets us tell that several shares came from the same browser. Clearing this site's data in your browser removes it from your device.</td></tr>
+    </tbody>
+  </table>
+  <p>We also record when the canvas was saved, give it a short share ID (the code in the share link) and count how many times its share link has been opened. The image shows which pixels are held, but not who selected them. Your affinity score and your share message aren't sent to us.</p>
+  <p>The latest shared canvas for each theme is shown on the <a href="/live">live display</a>, and anyone with a share link can open that canvas. Treat a shared canvas as public. The device ID isn't shown to other visitors.</p>
+
+  <h2>Stored in your browser</h2>
+  <p>Germinal uses your browser's local storage (not cookies) to remember a few things on your device:</p>
+  <ul>
+    <li>the random device ID above (only once you've shared);</li>
+    <li>whether you've already seen the intro, the opening genesis and the instructions, so they aren't shown every time;</li>
+    <li>on the live display, a copy of the last canvas it received, so the screen still has something to show if the connection drops.</li>
+  </ul>
+  <p>Apart from the device ID when you share, none of this is sent to us.</p>
+
+  <h2>Other services involved</h2>
+  <p>Like any website, Germinal relies on a few other companies. They receive your IP address and normal browser details when your device connects to them.</p>
+  <ul>
+    <li><b>Cloudflare</b> hosts the site and runs the small server code that saves and loads canvases. On the live display it also serves the code that draws the QR code (from <code>cdnjs.cloudflare.com</code>).</li>
+    <li><b>Supabase</b> is the database where shared canvases are stored. Your browser never connects to it directly; our server code on Cloudflare does.</li>
+    <li><b>Google Fonts</b> provides the typefaces, so your browser downloads them from Google.</li>
+  </ul>
+  <p>Our own code doesn't store IP addresses. Cloudflare and Supabase handle requests under their own privacy policies.</p>
+  <p>If you use the share buttons for WhatsApp, Messages or email, they open that app on your device with a message already written. Nothing is sent until you send it yourself, and we don't see who you send it to. “Save canvas image” downloads a picture to your device and sends nothing to us.</p>
+
+  <h2>How long we keep it, and removal</h2>
+  <p>Shared canvases are kept so their links and lineage keep working. There's currently no automatic deletion. If you'd like a canvas you shared removed, email <a href="mailto:hello@germinal.studio">hello@germinal.studio</a> with its share link.</p>
+
+  <h2>Changes</h2>
+  <p>If what we collect changes, for example if analytics are added, we'll update this page first.</p>
+  <p class="small">Last updated: October 2026.</p>
+</main>
+
+<footer>
+  <p>Germinal · germinal.studio<br>
+  <a href="/app.html">Canvas</a> · <a href="/intro.html">Intro</a> · <a href="/live">Live display</a> · <a href="/how-it-works">How it works</a> · <a href="/privacy">Privacy</a> · <a href="mailto:hello@germinal.studio">hello@germinal.studio</a></p>
+</footer>
+</body>
+</html>

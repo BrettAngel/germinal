@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How it works · Germinal</title>
+<meta name="description" content="How Germinal works: a canvas that begins as noise and evolves only through what people choose to keep.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Courier+Prime:ital@0;1&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--gold:#c8a96e;--gdim:#7a6030;--bg:#06060f;--brd:rgba(255,255,255,0.08);--txt:#d8d0c0;--dim:#9a9aa8;}
+body{background:var(--bg);color:var(--txt);font-family:"Cormorant Garamond",Georgia,serif;line-height:1.6;}
+a{color:var(--gold);}
+a:focus-visible{outline:2px solid var(--gold);outline-offset:3px;}
+.top{max-width:720px;margin:0 auto;padding:28px 24px 0;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
+.top a{font-family:"Courier Prime",monospace;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--gold);text-decoration:none;}
+.top nav a{letter-spacing:.14em;color:var(--dim);margin-left:16px;}
+.top nav a:hover,.top nav a[aria-current]{color:var(--gold);}
+main{max-width:720px;margin:0 auto;padding:56px 24px 40px;}
+.eye{font-family:"Courier Prime",monospace;font-size:11px;letter-spacing:.35em;text-transform:uppercase;color:var(--gold);margin-bottom:12px;}
+h1{font-size:clamp(36px,7vw,56px);font-weight:300;font-style:italic;color:#f4ecda;line-height:1.1;margin-bottom:18px;}
+.lede{font-size:clamp(19px,2.8vw,23px);font-weight:300;color:#e0d8c8;margin-bottom:40px;}
+h2{font-size:clamp(23px,3.6vw,29px);font-weight:400;color:#f0e8d8;line-height:1.25;margin:44px 0 14px;}
+p,li{font-size:18px;color:#c8c0b0;}
+p{margin-bottom:14px;}
+ul,ol{padding-left:22px;margin-bottom:14px;}
+li{margin-bottom:8px;}
+li b,p b{color:#f0e8d8;font-weight:500;}
+em{color:var(--gold);}
+code{font-family:"Courier Prime",monospace;font-size:15px;color:#e0d6c2;background:rgba(255,255,255,.05);padding:1px 5px;border-radius:4px;}
+.card{border:1px solid var(--brd);border-radius:14px;background:rgba(255,255,255,0.015);padding:20px 22px;margin:18px 0;}
+.card p:last-child,.card ul:last-child{margin-bottom:0;}
+.steps{list-style:none;padding:0;counter-reset:s;}
+.steps li{counter-increment:s;position:relative;padding-left:44px;margin-bottom:16px;}
+.steps li::before{content:counter(s,decimal-leading-zero);position:absolute;left:0;top:2px;font-family:"Courier Prime",monospace;font-size:13px;color:var(--gold);letter-spacing:.1em;}
+table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:17px;}
+th,td{text-align:left;vertical-align:top;padding:10px 10px 10px 0;border-bottom:1px solid var(--brd);color:#c8c0b0;}
+th{font-family:"Courier Prime",monospace;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);font-weight:400;}
+td:first-child{color:#f0e8d8;width:34%;}
+.small{font-size:15px;color:var(--dim);}
+.cta{display:inline-block;margin-top:10px;padding:14px 34px;border:2px solid var(--gold);border-radius:50px;background:rgba(200,169,110,0.12);color:var(--gold);font-family:"Courier Prime",monospace;font-size:12px;letter-spacing:.2em;text-transform:uppercase;text-decoration:none;}
+.cta:hover{background:rgba(200,169,110,0.24);}
+footer{border-top:1px solid var(--brd);padding:30px 24px;text-align:center;}
+footer p{font-family:"Courier Prime",monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#5a5a68;line-height:2.2;margin:0;}
+footer a{color:#8a8a98;text-decoration:none;}
+footer a:hover,footer a:focus{color:var(--gold);}
+</style>
+</head>
+<body>
+<header class="top">
+  <a href="/">germinal.studio</a>
+  <nav aria-label="Site"><a href="/how-it-works" aria-current="page">How it works</a><a href="/privacy">Privacy</a></nav>
+</header>
+<main>
+  <div class="eye">How it works</div>
+  <h1>A canvas that begins as noise.</h1>
+  <p class="lede">You can't paint on Germinal. You can only choose. What you choose holds; what nobody chooses keeps changing. Over many people and many generations, a picture forms that no one drew.</p>
+
+  <h2>Taking part</h2>
+  <ol class="steps">
+    <li><b>Zoom in.</b> The canvas is a field of about 600,000 coloured pixels. Pinch or scroll to zoom in. Move around with two fingers, or on a computer hold Space and drag.</li>
+    <li><b>Lasso what resonates.</b> Draw a tight loop around a small region that feels like the theme (right now, <em>love</em>). Small and precise beats large and vague.</li>
+    <li><b>Evolve.</b> The pixels you chose hold their place. The free pixels around them drift toward your colours, while the rest of the canvas keeps mutating at random.</li>
+    <li><b>Choose again to refine.</b> Lasso the same area a second time and it is <em>refined</em>; a third time and it is <em>crystallised</em>. Each step makes those pixels change less and pull harder on their neighbours.</li>
+    <li><b>Then look at History.</b> Earlier selections aren't highlighted unless you press <b>◎ History</b>. Make your own choice first, so your judgement is your own, then press it to see what came before.</li>
+    <li><b>Share.</b> Pressing Share saves your canvas and gives you a link. Whoever opens it gets your canvas, with the pixels you chose still holding but not highlighted, so what they keep is their own independent choice. They can carry it on and pass it further.</li>
+  </ol>
+  <p><a class="cta" href="/app.html">Enter the canvas →</a></p>
+
+  <h2>Where the canvas starts</h2>
+  <p>On your first visit, the canvas opens with a short <em>genesis</em>: a computer-generated starting pattern, built on your device by simulated seed contributors. It is labelled as a simulation, and none of it comes from real people. You can skip it.</p>
+  <p>If you've visited before, or you're using a venue screen, the canvas starts from the most recently shared canvas for the current theme. If you open someone's share link, you start from their canvas.</p>
+
+  <h2>The live display</h2>
+  <p>The <a href="/live">live display</a> shows the most recently shared canvas for the current theme. Each time someone shares, their canvas becomes the one shown. The display checks for a new canvas once a minute and animates gently in between.</p>
+  <p>Its <em>generation</em> number and <em>contributions</em> count both go up by one each time a canvas is shared. They count shares, not individual people. If nothing has been shared yet, or the display can't reach the server, it says so on screen (“Simulation” or “Offline”) and hides the numbers.</p>
+  <p>At a venue, scan the QR code on the screen to open the canvas on your phone. There is no app and no login.</p>
+
+  <h2>Your affinity score</h2>
+  <p>While you play, the canvas keeps a score of how well your choices hold up. It is worked out on your device only. It is not saved or sent anywhere, and it is not money.</p>
+  <ul>
+    <li><b>Precision wins.</b> A small region that survives earns far more than a broad one that half-survives.</li>
+    <li><b>Too broad earns nothing.</b> If your selections cover more than 8% of the canvas, they score zero. In the immune system this is like autoimmunity, when the body attacks too broadly.</li>
+    <li><b>Release costs you.</b> If pixels you chose are released later, most of the points they earned are lost.</li>
+  </ul>
+
+  <h2>The idea behind it</h2>
+  <p>Germinal is modelled on the <em>germinal centre</em>, a small structure in the lymph nodes. There, immune cells mutate almost at random. Most variations are useless; the few that fit better are kept, refined and carried forward as immune memory. The body doesn't design its defences. It recognises them in chance and holds on.</p>
+  <p>The canvas works the same way. Randomness is the raw material, and human attention is the selection. The biology isn't decoration. It is the logic of the piece.</p>
+
+  <h2>Questions</h2>
+  <p>See the <a href="/privacy">privacy notice</a> for what is stored, or watch the <a href="/intro.html">2-minute intro</a>. You can reach us at <a href="mailto:hello@germinal.studio">hello@germinal.studio</a>.</p>
+</main>
+
+<footer>
+  <p>Germinal · germinal.studio<br>
+  <a href="/app.html">Canvas</a> · <a href="/intro.html">Intro</a> · <a href="/live">Live display</a> · <a href="/how-it-works">How it works</a> · <a href="/privacy">Privacy</a> · <a href="mailto:hello@germinal.studio">hello@germinal.studio</a></p>
+</footer>
+</body>
+</html>
