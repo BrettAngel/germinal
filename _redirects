@@ -1,0 +1,11 @@
+# Cloudflare Pages redirects. Static rules first. Docs:
+# https://developers.cloudflare.com/pages/configuration/redirects/
+#
+# Kiosk link: /display (e.g. /display?kiosk=1) shows the live display.
+# 200 = rewrite: the address bar keeps /display?kiosk=1 and live.html is served.
+/display   /live   200
+/display/  /live   200
+#
+# Legacy share links of the form /c/<id> (app.html still understands them, but
+# without this they fell through to the landing page). Send them to ?c=<id>.
+/c/:id     /app?c=:id   302
