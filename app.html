@@ -3266,14 +3266,18 @@ async function runGenesis(){
   const scored=scoreSimContributors(contributors);
   scored.sort((a,b)=>b.score-a.score);
   scored.slice(0,8).forEach(c=>addCard(c,true));
-  if(scored.length>8){
+  // HONESTY PASS: "+ N further simulated genesis contributors" note hidden (not deleted); set to true to restore.
+  const SHOW_SIM_COUNT=false;
+  if(SHOW_SIM_COUNT&&scored.length>8){
     const m=document.createElement('div');
     m.style.cssText='font-family:\'Courier Prime\',monospace;font-size:8px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);text-align:center;padding:8px;';
     m.textContent=`+ ${scored.length-8} further simulated genesis contributors`;
     contribsEl.appendChild(m);
   }
 
-  setStatus(`Generation ${generation} · ${contributors.length} simulated contributors · Canvas primed`,100);
+  // HONESTY PASS: simulated contributor count hidden from the opening status line (not deleted).
+  // setStatus(`Generation ${generation} · ${contributors.length} simulated contributors · Canvas primed`,100);
+  setStatus(`Generation ${generation} · Canvas primed`,100);
   archiveState();renderAll();updateSimCanvas();
 
   await teach('Now it is your turn. <em>Small and precise travels further than large and vague.</em>', 3000);
