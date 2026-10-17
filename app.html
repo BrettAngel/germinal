@@ -685,7 +685,7 @@ body.kiosk .hs .v{font-size:20px;}
 
   <div id="tstrip">
     <label>Theme</label>
-    <input id="themeIn" value="love" placeholder="theme…" autocomplete="off" autocorrect="off" spellcheck="false"/>
+    <input id="themeIn" value="love" maxlength="40" placeholder="theme…" autocomplete="off" autocorrect="off" spellcheck="false"/>
     <span id="zlbl">fit</span>
     <button id="evoBtn" onclick="nextGen()">▶ Evolve</button>
   </div>
@@ -1122,7 +1122,13 @@ function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
 if(KIOSK)document.body.classList.add('kiosk');
 if(SHOW_PREVIEW&&!KIOSK)document.body.classList.add('show-preview');
-if(QS.get('theme')){const ti=document.getElementById('themeIn');if(ti)ti.value=QS.get('theme').slice(0,40);}
+// Theme rules shared with lib/validate.js: lowercase a-z, 0-9, space, hyphen; 1-40 chars.
+function normTheme(raw){
+  const t=String(raw||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9 \-]+/g,' ').replace(/\s+/g,' ').trim().slice(0,40).trim();
+  return t||'love';
+}
+if(QS.get('theme')){const ti=document.getElementById('themeIn');if(ti)ti.value=normTheme(QS.get('theme'));}
 // Genesis runs scripted generations before the visitor arrives. Those must
 // not score for the visitor, and must stop mutating once they take over.
 let genesisAborted=false, genesisGenerations=0, userEra=false;
@@ -2398,7 +2404,20 @@ function renderAuctionSchedule(){
    {d:new Date(now.getFullYear()+1,0,1),s:'upcoming'}].forEach(item=>{
     const row=document.createElement('div');
     row.style.cssText='display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--brd);cursor:pointer;';
-    row.innerHTML='<div><div style="font-family:Courier Prime,monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold)">'+fmtDate(item.d)+'</div><div style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:var(--dim);margin-top:2px;">'+theme+'</div></div><div style="text-align:right"><span class="ac-status '+item.s+'" style="display:inline-block">'+( item.s==='live'?'● Live':'Opens soon')+'</span></div>';
+    // Theme comes from the input / ?theme= URL param, so build with textContent.
+    const left=document.createElement('div');
+    const dEl=document.createElement('div');
+    dEl.style.cssText='font-family:Courier Prime,monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold)';
+    dEl.textContent=fmtDate(item.d);
+    const tEl=document.createElement('div');
+    tEl.style.cssText='font-family:Cormorant Garamond,serif;font-style:italic;font-size:12px;color:var(--dim);margin-top:2px;';
+    tEl.textContent=theme;
+    left.append(dEl,tEl);
+    const right=document.createElement('div');right.style.textAlign='right';
+    const st=document.createElement('span');st.className='ac-status '+item.s;st.style.display='inline-block';
+    st.textContent=item.s==='live'?'● Live':'Opens soon';
+    right.appendChild(st);
+    row.append(left,right);
     row.onclick=()=>{mktDate=item.d;switchMktTab('live');updateMarket();};
     el.appendChild(row);
   });
@@ -3383,7 +3402,7 @@ async function saveToServer(){
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        theme: document.getElementById('themeIn').value||'love',
+        theme: normTheme(document.getElementById('themeIn').value),
         generation,
         parentId: currentShareId || null,
         cellData,
@@ -3439,20 +3458,31 @@ function showIncomingBanner(data){
       'padding:22px 26px;text-align:center;z-index:100;max-width:320px;width:90%;';
     document.body.appendChild(banner);
   }
-  const theme = data.theme||'love';
-  banner.innerHTML = '<div style="font-family:Courier Prime,monospace;font-size:9px;' +
-    'letter-spacing:.3em;text-transform:uppercase;color:var(--gold);margin-bottom:8px">' +
-    'Canvas received</div>' +
-    '<p style="font-family:Cormorant Garamond,serif;font-style:italic;font-size:15px;' +
-    'color:#d8d0c0;line-height:1.55;margin-bottom:16px">' +
-    'Someone has shared their "'+theme+'" canvas with you ' +
-    '(Generation '+data.generation+'). Their stabilised regions are preserved. ' +
-    'The canvas is unbiased — make your own selections before pressing History.</p>' +
-    '<button onclick="this.parentElement.remove()" style="width:100%;padding:13px;' +
+  // Server-provided strings are rendered as text only (never innerHTML): the
+  // theme is user-chosen and stored by /api/canvas-save, so it is untrusted.
+  const theme = String(data.theme||'love');
+  const gen = Number.isFinite(Number(data.generation)) ? Number(data.generation) : '—';
+  banner.textContent = '';
+  const eyebrow = document.createElement('div');
+  eyebrow.style.cssText = 'font-family:Courier Prime,monospace;font-size:9px;' +
+    'letter-spacing:.3em;text-transform:uppercase;color:var(--gold);margin-bottom:8px';
+  eyebrow.textContent = 'Canvas received';
+  const p = document.createElement('p');
+  p.style.cssText = 'font-family:Cormorant Garamond,serif;font-style:italic;font-size:15px;' +
+    'color:#d8d0c0;line-height:1.55;margin-bottom:16px';
+  p.textContent = 'Someone has shared their "'+theme+'" canvas with you ' +
+    '(Generation '+gen+'). Their stabilised regions are preserved. ' +
+    'The canvas is unbiased — make your own selections before pressing History.';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.style.cssText = 'width:100%;padding:13px;' +
     'background:rgba(200,169,110,.1);border:2px solid var(--gdim);border-radius:10px;' +
     'color:var(--gold);font-family:Courier Prime,monospace;font-size:10px;' +
     'letter-spacing:.18em;text-transform:uppercase;cursor:pointer;' +
-    'touch-action:manipulation;">Begin →</button>';
+    'touch-action:manipulation;';
+  btn.textContent = 'Begin →';
+  btn.addEventListener('click', () => banner.remove());
+  banner.append(eyebrow, p, btn);
 }
 
 // ── Check URL for share ID on load ──
@@ -3593,7 +3623,7 @@ async function quickStart(){
   let loaded=false;
   try{
     const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),2500);
-    const theme=(document.getElementById('themeIn').value||'love').toLowerCase();
+    const theme=normTheme(document.getElementById('themeIn').value);
     const r=await fetch(`${API}/display-live?theme=${encodeURIComponent(theme)}`,{signal:ctl.signal});
     clearTimeout(t);
     if(r.ok){const d=await r.json();
