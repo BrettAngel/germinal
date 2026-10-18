@@ -1,4 +1,4 @@
-// Cloudflare Pages Function — GET /api/display-live?theme=love
+// Cloudflare Pages Function — GET /api/display-live?theme=love[&hint=pull]
 //
 // Returns the current "mother" canvas for a theme. Source order:
 //   1. mother_display row for the theme (written by /api/canvas-save)
@@ -10,6 +10,7 @@
 // "The canvas is waking…". It also used .single(), which errors on 0 rows.
 import { createClient } from '@supabase/supabase-js';
 import { validateTheme } from '../../lib/validate.js';
+import { nsTheme } from '../../lib/variant.js';
 
 export async function onRequestGet(context){
   const { request, env } = context;
@@ -22,7 +23,9 @@ export async function onRequestGet(context){
   const json = (obj, status=200) => new Response(JSON.stringify(obj), { status, headers });
   const t = validateTheme(url.searchParams.get('theme'));
   if(!t.ok) return json({ empty:true, error:t.error }, 400);
-  const theme = t.value;
+  // PROTOTYPE (variant B): always read this branch's namespaced theme, e.g.
+  // ?theme=love&hint=pull → "pb-love-pull". Never a real theme's rows.
+  const theme = nsTheme(t.value, url.searchParams.get('hint'));
 
   if(!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY){
     return json({ theme, empty:true, error:'Server not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing)' }, 503);
