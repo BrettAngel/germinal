@@ -407,18 +407,23 @@ test('dream form masks are filled silhouettes (binary, no outline-only shapes)',
   }
 });
 // ── Dream it: real selection + real Evolve, sped up (no mask reveal) ──
-test('dream timeline: 4–6 select+Evolve cycles, each faster than the last; ~12–15 s; reduced motion ~7 s', () => {
+test('dream timeline: many lasso → tap-Evolve cycles, each faster than the last; ~13–16 s; reduced motion ~8 s', () => {
   for(const rm of [false, true]){
-    const T = D.dreamTimeline(rm), d = T.cycles.map(c => c.dur);
-    assert.ok(d.length >= 4 && d.length <= 6, 'cycles ' + d.length);
+    const T = D.dreamTimeline(rm, 4), d = T.cycles.map(c => c.dur);
+    assert.ok(d.length >= (rm ? 6 : 10), 'many cycles: ' + d.length);
     for(let k = 1; k < d.length; k++) assert.ok(d[k] < d[k - 1], `cycle ${k} faster: ${d[k - 1]} → ${d[k]}`);
-    for(const c of T.cycles){ assert.ok(c.loops >= 2, 'a few lassos each cycle');
-      assert.ok(c.t0 < c.loopEnd && c.loopEnd <= c.press && c.press <= c.t1, 'lassos, then Evolve, inside the cycle'); }
+    assert.equal(T.cycles[0].phase, 'pick'); assert.equal(T.cycles[0].loops, 4, 'cycle 0: the first scattered picks');
+    for(const c of T.cycles.slice(1)){ assert.equal(c.phase, 'cycle'); assert.ok(c.loops >= 1); }
+    for(const c of T.cycles){
+      assert.ok(c.t0 < c.loopEnd && c.loopEnd < c.press && c.press < c.t1, 'lasso, then travel to Evolve, tap, then the change, inside every cycle');
+      assert.ok(c.press - c.loopEnd >= 0.05, 'time to move to the button: ' + (c.press - c.loopEnd).toFixed(2)); }
     for(let k = 1; k < T.cycles.length; k++) assert.ok(Math.abs(T.cycles[k].t0 - T.cycles[k - 1].t1) < 1e-9, 'back to back');
-    assert.ok(T.cycles[0].t0 >= T.pick[1] - 1e-9 && T.zout[0] >= T.cycles.at(-1).t1 - 1e-9 && T.fade[1] === T.end, 'order: picks → cycles → step back → fade');
-    if(rm) assert.ok(T.end >= 5 && T.end <= 8, 'reduced ' + T.end);
-    else { assert.ok(T.end >= 12 && T.end <= 15, 'normal ' + T.end); assert.equal(T.zin[1], 2.2, 'opening zoom unchanged');
-      assert.deepEqual(T.pick, [2.2, 4.8].map((v, i) => T.pick[i]), 'first lassos right after the zoom'); assert.ok(Math.abs(T.pick[1] - 4.8) < 1e-9); }
+    assert.ok(Math.abs(T.cycles[0].t0 - T.zin[1]) < 1e-9 && T.zout[0] >= T.cycles.at(-1).t1 - 1e-9 && T.fade[1] === T.end, 'order: zoom → cycles → step back → fade');
+    if(rm){ assert.ok(T.end >= 6 && T.end <= 9, 'reduced ' + T.end); assert.ok(T.cycles.every(c => !c.ease), 'reduced motion: no eased transitions'); }
+    else { assert.ok(T.end >= 13 && T.end <= 15.5, 'normal (nominal; engine pauses add a little) ' + T.end); assert.equal(T.zin[1], 2.2, 'opening zoom unchanged');
+      assert.ok(T.cycles[0].ease >= 0.55 && T.cycles[0].ease <= 0.7 && T.cycles[1].ease >= 0.55 && T.cycles[1].ease <= 0.7, 'the first 2 Evolves ease over ~600 ms');
+      assert.ok(T.cycles.slice(2).every(c => !c.ease), 'later Evolves are instant');
+      for(const c of T.cycles.slice(0, 2)) assert.ok(c.t1 - c.press >= c.ease - 1e-9, 'the eased change fits before the next lasso'); }
   }
 });
 test('dream picks prefer red-ish pixels when the spot has them', () => {
@@ -462,7 +467,7 @@ test('dream selection: real unheld cells next to the held cluster, red-ish, soft
 test('dream cluster grows across cycles, for every form: outward, mostly into the form, rough (gaps and strays)', () => {
   for(const form of D.FORMS){
   const WC = 260, WR = 220, rgb = speckle(WC, WR, 11), S = D.formSize(form), fx = 130, fy = 110, mask = D.formMask(form, S), rand = H.mulberry32(4);
-  const T = D.dreamTimeline(false), held = new Set();
+  const T = D.dreamTimeline(false, 4), held = new Set();
   const tune = D.formTuning(form), hole = D.formHole(form, S), X0 = fx - (S >> 1), Y0 = fy - (S >> 1);
   const HX = X0 + (hole ? hole.cx : 0), HY = Y0 + (hole ? hole.cy : 0), inHole = i => hole && Math.hypot(i % WC + .5 - HX, ((i / WC) | 0) + .5 - HY) < hole.r;
   for(const q of tune.starts){ const sx = Math.round(fx + q.dx * S), w = q.win || 16;
@@ -474,7 +479,8 @@ test('dream cluster grows across cycles, for every form: outward, mostly into th
   let formN = 0; for(const v of mask) formN += v;
   const sizes = [held.size], cover = [], spread = [];
   T.cycles.forEach((c, k) => {
-    const u = k / (T.cycles.length - 1), r = Math.max(1.4, (26 + 16 * u) / (9 * Math.pow(0.45, u) * 2));
+    if(c.phase === 'pick') return;
+    const r = D.cycleLoopR(k, T.cycles.length, 9, 3.6);
     const tg = D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster: [...held], WC, WR, mask, S, fx, fy, ring: Math.max(2, Math.round(r * 0.9)), count: c.loops, minSep: Math.max(3, Math.round(r * 1.3)), bias: 1 + k * 0.25, fill: tune.fill, hole, loopR: r, rand });
     for(const o of tg){ assert.ok(o.r <= r + 1e-9, 'loops only shrink'); holdLoop(D.loopPoints(o.i % WC, (o.i / WC) | 0, o.r, rand), WC, held); }
     sizes.push(held.size); let f = 0, mx = 0; for(const i of held){ if(inF(i)) f++; mx = Math.max(mx, Math.hypot(i % WC - fx, ((i / WC) | 0) - fy)); }
@@ -485,7 +491,7 @@ test('dream cluster grows across cycles, for every form: outward, mostly into th
   let inside = 0; for(const i of held) if(inF(i)) inside++;
   assert.ok(inside / held.size > 0.6, form + ' mostly inside the form: ' + (inside / held.size).toFixed(2));
   assert.ok(cover.at(-1) < 0.9 && (inside / held.size < 0.995 || cover.at(-1) < 0.8), `${form} rough (gaps, or strays), not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
-  assert.ok(cover.at(-1) > 0.35, form + ' but enough to read as one: cover ' + cover.at(-1).toFixed(2));
+  if(D.ROTATION.includes(form)) assert.ok(cover.at(-1) > 0.35, form + ' but enough to read as one: cover ' + cover.at(-1).toFixed(2));   // (the eye is out of the rotation; its pupil rules still checked)
   assert.ok(held.size / (900 * 660) < 0.08, 'far under the 8% cap');
   if(hole){ assert.equal([...held].filter(inHole).length, 0, form + ': the pupil is never lassoed');
     let left = 0, right = 0; for(const i of held) if(inF(i)) (i % WC < HX ? left++ : right++);
@@ -556,4 +562,61 @@ test('dream uses the real mechanics: applyLasso + nextGen, no stored image or ma
   assert.match(ui, /applyLasso\(false\)/, 'real lassos'); assert.match(ui, /nextGen\(\)/, 'real Evolve');
   assert.doesNotMatch(ui, /putImageData|createImageData|formMask\([^)]*\)[^;]*fill/, 'never paints an image of the form');
   assert.doesNotMatch(ui, /saveToServer|fetch\(/, 'nothing saved to the server');
+});
+
+// ── Evolve as a gradient (lib/influence.js) + the glow rule ──
+import * as I from '../lib/influence.js';
+test('gradient engine: nearest-hold distance matches brute force', () => {
+  const WC = 60, WR = 40, src = new Uint8Array(WC * WR), r = H.mulberry32(9), pts = [];
+  for(let k = 0; k < 12; k++){ const i = (r() * WC * WR) | 0; src[i] = 1; pts.push(i); }
+  const { dist, src: near } = I.nearestSource(src, WC, WR);
+  let worst = 0;
+  for(let i = 0; i < WC * WR; i++){ let best = Infinity; for(const p of pts) best = Math.min(best, Math.hypot(i % WC - p % WC, ((i / WC) | 0) - ((p / WC) | 0)));
+    worst = Math.max(worst, dist[i] - best); assert.ok(src[near[i]] === 1, 'points at a hold'); }
+  assert.ok(worst < 0.5, 'within half a cell of the true distance: ' + worst.toFixed(2));
+});
+function gradRun(params, gens = 6){
+  const WC = 900, WR = 660, N = WC * WR, h = H.hintCanvas('love', 'noise'), rand = H.mulberry32(5);
+  const R = h.R.slice(), G = h.G.slice(), B = h.B.slice(), level = new Uint8Array(N), spreads = new Uint8Array(N);
+  for(let y = 300; y < 326; y++) for(let x = 400; x < 426; x++){ if(((x - 413) ** 2 + (y - 313) ** 2) > 169) continue; const i = y * WC + x; level[i] = 2; spreads[i] = 1; R[i] = 210; G[i] = 34; B[i] = 60; }
+  const held0 = [R.slice(), G.slice(), B.slice()];
+  for(let g = 0; g < gens - 1; g++) I.gradientStep({ R, G, B, level, spreads, H0: h, WC, WR, P: params, rand });
+  const before = [R.slice(), G.slice(), B.slice()];
+  const { dist } = I.gradientStep({ R, G, B, level, spreads, H0: h, WC, WR, P: params, rand });
+  const band = (a, b) => { let ch = 0, red = 0, n = 0; for(let i = 0; i < N; i++){ const d = dist[i]; if(!(d >= a && (d < b || b === Infinity))) continue;
+    ch += Math.abs(R[i] - before[0][i]) + Math.abs(G[i] - before[1][i]) + Math.abs(B[i] - before[2][i]); red += D.redness(R[i], G[i], B[i]); n++; } return { ch: ch / n, red: red / n, n }; };
+  let heldMoved = 0; for(let i = 0; i < N; i++) if(level[i] && (R[i] !== held0[0][i] || G[i] !== held0[1][i] || B[i] !== held0[2][i])) heldMoved++;
+  return { band, heldMoved, R, G, B, h, N };
+}
+test('gradient: change per Evolve grows with distance from the held cells; near cells take related shades; far cells re-randomise', () => {
+  const { band, heldMoved } = gradRun(V.PARAMS);
+  assert.equal(heldMoved, 0, 'held cells are untouched by the free-cell step');
+  const edges = [0.5, 2.5, 4.5, 7.5, 11.5, 16.5, Infinity], B = [];
+  for(let k = 0; k < edges.length - 1; k++) B.push(band(edges[k], edges[k + 1]));
+  const ch = B.map(b => +b.ch.toFixed(1)), red = B.map(b => +b.red.toFixed(3));
+  for(let k = 1; k < ch.length; k++) assert.ok(ch[k] > ch[k - 1], 'change magnitude increases with distance: ' + ch.join(' < '));
+  assert.ok(ch[0] < 0.15 * ch.at(-1), 'next to the holds: barely changes once settled');
+  for(let k = 1; k < 4; k++) assert.ok(red[k] < red[k - 1], 'the selected colour fades with distance: ' + red.join(' > '));
+  assert.ok(red[0] > 1.5 * red.at(-1), 'near cells are shades of the held colour');
+});
+test('gradient: far cells are fresh samples of the starting canvas (fully re-randomised)', () => {
+  const { R, G, B, h } = gradRun(V.PARAMS, 1);
+  let same = 0, n = 0, inPal = 0; const WC = 900;
+  for(let y = 20; y < 120; y++) for(let x = 20; x < 220; x++){ const i = y * WC + x; n++; if(R[i] === h.R[i] && G[i] === h.G[i] && B[i] === h.B[i]) same++;
+    let ok = false; for(let dy = -3; dy <= 3 && !ok; dy++) for(let dx = -3; dx <= 3 && !ok; dx++){ const j = (y + dy) * WC + x + dx; ok = R[i] === h.R[j] && G[i] === h.G[j] && B[i] === h.B[j]; } if(ok) inPal++; }
+  assert.ok(same / n < 0.1, 'far cells changed: ' + (1 - same / n).toFixed(2));
+  assert.equal(inPal, n, 'each one a starting-canvas colour from within ±3 cells');
+});
+test('gradient: bounded and tunable', () => {
+  const p = I.gradParams({ inflR: 999, inflLambda: -1, inflT: 5, farRandomP: 7, farJitter: 99, randomPow: 0 });
+  assert.deepEqual([p.inflR, p.inflLambda, p.inflT, p.farRandomP, p.farJitter, p.randomPow], [40, 0.5, 0.9, 1, 8, 0.5]);
+  assert.deepEqual(I.gradParams({ inflR: 'x' }).inflR, I.GRAD_DEFAULTS.inflR, 'garbage → default');
+  const still = gradRun({ ...V.PARAMS, farRandomP: 0, inflT: 0 }, 2).band(0.5, Infinity);
+  assert.equal(still.ch, 0, 'influence and randomising both off: nothing changes');
+  assert.ok(V.PARAMS.gradient === true && V.PARAMS.inflR === 16 && V.PARAMS.inflLambda === 4.5, 'variant B uses it');
+});
+test('glow rule: the engine no longer brightens held / re-chosen cells (glowP 0); hold data untouched', () => {
+  assert.equal(V.PARAMS.glowP, 0, 'no persistent glow on held or re-chosen cells');
+  // hold levels and the v2 stab map are not part of the gradient step: it only writes free cells' colours
+  const { heldMoved } = gradRun(V.PARAMS, 3); assert.equal(heldMoved, 0);
 });
