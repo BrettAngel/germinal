@@ -7,6 +7,7 @@
 // code can never write a real theme's rows. Must be reworked before merging.
 import { createClient } from '@supabase/supabase-js';
 import { validateSaveBody, MAX_BODY_BYTES } from '../../lib/validate.js';
+import { resolveLineage } from '../../lib/lineage.js';
 import { decodeCells, decodeChosen, decodeStab, levelsFromCells, unpackMother, packMother, mergeIntoMother } from '../../lib/merge.js';
 import { nsTheme, PARAMS } from '../../lib/variant.js';
 
@@ -53,12 +54,15 @@ export async function onRequestPost(context){
   try{
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
 
-    let depth = 0;
-    if(parentId){
-      const { data:p } = await supabase.from('canvas_states')
-        .select('depth').eq('short_id', parentId).maybeSingle();
-      if(p) depth = p.depth + 1;
-    }
+    // PROTOTYPE: saves that start from the live canvas get the theme's latest
+    // save as parent (lib/lineage.js); share-link saves keep their parent.
+    const lin = await resolveLineage({
+      parentId, theme,
+      lookupById: async id => (await supabase.from('canvas_states').select('short_id,depth').eq('short_id', id).maybeSingle()).data || null,
+      lookupLatest: async th => (await supabase.from('canvas_states').select('short_id,depth').eq('theme', th)
+                                   .order('created_at', { ascending:false }).limit(1).maybeSingle()).data || null,
+    });
+    const depth = lin.depth;
 
     let id, attempts = 0;
     while(attempts++ < 10){
@@ -70,7 +74,7 @@ export async function onRequestPost(context){
 
     const { error } = await supabase.from('canvas_states').insert({
       short_id:id, theme, generation,
-      parent_id:parentId||null, depth,
+      parent_id:lin.parentId, depth,
       cell_data:cellData, stab_map:(sm2 || chosen) ? stabMap : null,
       contributor_id:contributorId
     });
@@ -112,7 +116,7 @@ export async function onRequestPost(context){
 
     const origin = new URL(request.url).origin;
     return new Response(JSON.stringify({
-      shareId:id, shareUrl:`${origin}/app.html?c=${id}`, depth, theme, merge
+      shareId:id, shareUrl:`${origin}/app.html?c=${id}`, depth, parentId:lin.parentId, lineage:lin.via, theme, merge
     }),{status:200,headers});
   }catch(err){
     return new Response(JSON.stringify({error:err.message}),{status:500,headers});

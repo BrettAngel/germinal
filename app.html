@@ -2136,7 +2136,7 @@ function applyLasso(era){
     for(let c=minC;c<=maxC;c++){
       if(!ptInPoly(c*CS+CS/2,r*CS+CS/2,wp))continue;
       const i=r*WC+c;
-      if(era){if(cells[i].s>0){cells[i].s=0;cells[i].w=0;userOwnedCells.delete(i);chosenCells.delete(i);count++;}}
+      if(era){if(cells[i].s>0){cells[i].s=0;cells[i].w=0;userOwnedCells.delete(i);chosenCells.add(i);count++;}}   // chosen + level 0 = released by you (lib/merge.js)
       else{
         if(cells[i].s===0){cells[i].s=1;cells[i].w=wide?1:0;userOwnedCells.add(i);count++;}
         else{if(cells[i].s<3){cells[i].s++;upgraded++;count++;}if(!wide)cells[i].w=0;}
@@ -3509,11 +3509,11 @@ function u5(q){return Math.round((q&31)*255/31);}
 // holds). Sent in the existing stabMap field so the server knows which holds
 // were re-chosen; the others loosen (lib/merge.js). ──
 // SM2 (lib/merge.js): one nibble per cell — bits 0–1 hold level, bit 2 loose,
-// bit 3 chosen this session. Replaces the 1-bit chosen map.
+// bit 3 chosen this session (lassoed or erased). Replaces the 1-bit chosen map.
 function encodeStab(){
   const bytes=new Uint8Array(Math.ceil(WT/2));
-  for(let i=0;i<WT;i++){const c=cells[i];if(!c||!c.s)continue;
-    const n=(Math.min(3,c.s)&3)|(c.w?4:0)|(chosenCells.has(i)?8:0);
+  for(let i=0;i<WT;i++){const c=cells[i];if(!c)continue;const ch=chosenCells.has(i);if(!c.s&&!ch)continue;
+    const n=(Math.min(3,c.s)&3)|(c.s&&c.w?4:0)|(ch?8:0);   // chosen with level 0 = you erased it
     bytes[i>>1]|=n<<((i&1)<<2);}
   let bin='';for(let i=0;i<bytes.length;i+=8192)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+8192));
   return btoa(bin);
@@ -3613,6 +3613,7 @@ async function loadFromServer(shareId){
 
     // Apply received canvas state
     if(!decodeFromServer(data.cellData,data.stabMap)) return false;
+    chosenCells.clear();
     generation = data.generation||1;
     // PROTOTYPE: stored theme is namespaced ("pb-love-pull"): show "love", keep the hint.
     const pt = window.GERM ? GERM.V.parseNsTheme(String(data.theme||'love')) : {base:data.theme||'love',hint:null};
@@ -3810,6 +3811,7 @@ GERM_READY.then(bootApp);
 // theme's primordial hint (lib/hints.js). Returns 'live' | 'hint'.
 async function startFromLive(){
   let src='hint';
+  chosenCells.clear();   // a session's choices start when it joins the live canvas (not the intro's bots)
   try{
     const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),5000);
     const q=`theme=${encodeURIComponent(themeNow())}&hint=${encodeURIComponent(hintNow())}`;

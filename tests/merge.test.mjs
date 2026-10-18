@@ -3,6 +3,7 @@ import test from 'node:test'; import assert from 'node:assert/strict';
 import * as M from '../lib/merge.js';
 import * as H from '../lib/hints.js';
 import * as V from '../lib/variant.js';
+import { resolveLineage } from '../lib/lineage.js';
 import { THEME_RE, CELL_DATA_LENGTH } from '../lib/validate.js';
 
 const WT = M.WT, HELD = M.HELD;
@@ -58,7 +59,7 @@ test('held-only without a chosen map: only cells not already held live are taken
   assert.equal(r.cells[1], mother[1]); assert.equal(r.cells[2], inc[2]);
 });
 
-test('continuation: the whole incoming canvas (held + unheld) is taken', () => {
+test('continuation (no chosen map, old client): incoming holds count only where live is free', () => {
   const mother = canvas(cell(5, 5, 5, false)); mother[3] = cell(1, 1, 1, true);
   const inc = canvas(cell(6, 6, 6, false)); inc[3] = cell(2, 2, 2, true); inc[4] = cell(7, 7, 7, true);
   const r = M.mergeIntoMother({ mother, incoming: inc, continuation: true });
@@ -178,8 +179,11 @@ test('merge levels: max(live, incoming); chosen takes colour + loose; continuati
   assert.equal(r.cells[11], ic[11]); assert.equal(r.level[11], 2); assert.equal(r.loose[11], 0, 'tight re-choice firms a loose hold');
   assert.equal(r.cells[12], ic[12]); assert.equal(r.level[12], 1); assert.equal(r.loose[12], 1);
   assert.equal(r.stats.loose, 1); assert.equal(r.stats.refined, 2);
-  const c = M.mergeIntoMother({ mother: { cells: mc, level: ml, loose: mo }, incoming: { cells: ic, level: il, loose: io }, continuation: true });
-  assert.equal(c.mode, 'continue'); assert.deepEqual(c.level, il); assert.deepEqual(c.loose, io);
+  const c = M.mergeIntoMother({ mother: { cells: mc, level: ml, loose: mo }, incoming: { cells: ic, level: il, loose: io }, chosen: ch, continuation: true });
+  assert.equal(c.mode, 'continue');
+  assert.equal(c.level[10], 3, 'continuation: unchosen cell keeps the LIVE level'); assert.equal(c.cells[10], ic[10], '…but takes the evolved colour');
+  assert.equal(c.level[11], 2); assert.equal(c.loose[11], 0); assert.equal(c.level[12], 1); assert.equal(c.loose[12], 1);
+  assert.equal(c.cells[0], ic[0], 'continuation carries the evolved unheld background');
 });
 
 test('release: loose ≈ 5.4%/save freed outright; ordinary 0.75%/save drop ONE level; chosen never', () => {
@@ -210,4 +214,73 @@ test('full save/load round trip of levels through the client SM2 + server pack',
   const first = M.mergeIntoMother({ mother: null, incoming: { cells, level: d.level, loose: d.loose } });
   const back = M.unpackMother(M.packMother(first));
   assert.deepEqual(back.level, lv); assert.deepEqual(back.loose, lo); assert.deepEqual(back.cells, cells);
+});
+
+// ── Regression: only this session's choices apply ──
+function liveWithReleased(){
+  // live canvas: cells 0..99 held at level 2, cells 100..199 were held but have since been RELEASED (free)
+  const cells = canvas(cell(4, 4, 4, false)), level = Z(), loose = Z();
+  for(let i = 0; i < 100; i++){ cells[i] = cell(20, 0, 0, true); level[i] = 2; }
+  for(let i = 100; i < 200; i++) cells[i] = cell(6, 6, 6, false);
+  return { cells, level, loose };
+}
+function oldCopy(){
+  // a visitor's older copy: still holds 0..199 (inherited, NOT chosen this session), at level 3, loose on some
+  const cells = canvas(cell(9, 9, 9, false)), level = Z(), loose = Z();
+  for(let i = 0; i < 200; i++){ cells[i] = cell(25, 5, 5, true); level[i] = 3; loose[i] = i % 2; }
+  return { cells, level, loose };
+}
+for(const continuation of [false, true]){
+  test(`regression (${continuation ? 'continue' : 'stale'}): unchosen inherited holds cannot revive released holds or raise levels`, () => {
+    const live = liveWithReleased(), inc = oldCopy(), ch = Z();
+    for(let i = 300; i < 310; i++){ inc.cells[i] = cell(0, 31, 0, true); inc.level[i] = 1; ch[i] = 1; }   // one real choice
+    const r = M.mergeIntoMother({ mother: live, incoming: inc, chosen: ch, continuation });
+    for(let i = 100; i < 200; i++){ assert.equal(r.level[i], 0, 'released hold stays released'); assert.equal(r.cells[i] & HELD, 0); }
+    for(let i = 0; i < 100; i++){ assert.equal(r.level[i], 2, 'live level, not the copy\'s 3'); assert.equal(r.loose[i], 0, 'live loose flag'); }
+    for(let i = 300; i < 310; i++){ assert.equal(r.cells[i], cell(0, 31, 0, true)); assert.equal(r.level[i], 1); }
+    if(continuation){
+      assert.equal(r.cells[150], cell(25, 5, 5, false), 'continue: evolved colour, but unheld');
+      assert.equal(r.cells[50], cell(25, 5, 5, true), 'continue: evolved colour of a live hold');
+      assert.equal(r.cells[500], cell(9, 9, 9, false), 'continue: evolved background');
+    } else {
+      assert.equal(r.cells[150], live.cells[150], 'stale: live colour'); assert.equal(r.cells[50], live.cells[50]);
+      assert.equal(r.cells[500], live.cells[500], 'stale: live background');
+    }
+    assert.equal(r.stats.held, 110); assert.equal(r.stats.taken, 10);
+  });
+}
+
+test('erase this session (chosen + level 0) frees the cell in both paths; SM2 carries it', () => {
+  for(const continuation of [false, true]){
+    const live = liveWithReleased(), inc = { cells: Uint16Array.from(live.cells), level: Uint8Array.from(live.level), loose: Z() }, ch = Z();
+    for(let i = 0; i < 10; i++){ inc.cells[i] &= 0x7FFF; inc.level[i] = 0; ch[i] = 1; }
+    const d = M.decodeStab(M.encodeStab(inc.level, inc.loose, ch));
+    const r = M.mergeIntoMother({ mother: live, incoming: { cells: inc.cells, level: d.level, loose: d.loose }, chosen: d.chosen, continuation });
+    for(let i = 0; i < 10; i++) assert.equal(r.level[i], 0);
+    for(let i = 10; i < 100; i++) assert.equal(r.level[i], 2);
+    assert.equal(r.stats.erased, 10);
+  }
+});
+
+test('release only touches live holds the visitor did not choose; chosen erase is not "released"', () => {
+  const live = liveWithReleased(), inc = oldCopy(), ch = Z(); for(let i = 0; i < 50; i++) ch[i] = 1;
+  const r = M.mergeIntoMother({ mother: live, incoming: inc, chosen: ch, release: 1, releaseLoose: 1, rand: () => 0 });
+  for(let i = 0; i < 50; i++) assert.equal(r.level[i], 3, 'chosen: max(2, 3), not released');
+  for(let i = 50; i < 100; i++) assert.equal(r.level[i], 1, 'unchosen: live 2 → 1');
+  for(let i = 100; i < 200; i++) assert.equal(r.level[i], 0);
+});
+
+// ── Lineage depth ──
+test('lineage: live saves chain onto the theme\'s latest save; share links keep their parent', async () => {
+  const rows = [];
+  const db = { lookupById: async id => rows.find(r => r.short_id === id) || null,
+               lookupLatest: async th => rows.filter(r => r.theme === th).slice(-1)[0] || null };
+  const save = async (theme, parentId) => { const l = await resolveLineage({ parentId, theme, ...db }); const id = 's' + rows.length; rows.push({ short_id: id, theme, depth: l.depth, parent_id: l.parentId }); return { id, ...l }; };
+  const a = await save('pb-love-pull', null);   assert.deepEqual([a.depth, a.parentId, a.via], [0, null, 'first']);
+  const b = await save('pb-love-pull', null);   assert.deepEqual([b.depth, b.parentId, b.via], [1, a.id, 'live']);
+  const c = await save('pb-love-pull', null);   assert.deepEqual([c.depth, c.parentId], [2, b.id]);
+  const o = await save('pb-love-ripples', null); assert.equal(o.depth, 0, 'per theme');
+  const s1 = await save('pb-love-pull', a.id);  assert.deepEqual([s1.depth, s1.parentId, s1.via], [1, a.id, 'share'], 'share link: parent depth + 1');
+  const s2 = await save('pb-love-pull', s1.id); assert.equal(s2.depth, 2);
+  const m = await save('pb-love-pull', 'zzzzzz'); assert.deepEqual([m.depth, m.via], [0, 'share-missing']);
 });
