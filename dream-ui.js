@@ -137,12 +137,12 @@ function sizeCanvas(){const dpr=Math.min(2,window.devicePixelRatio||1);const {w,
   dctx.setTransform(dpr,0,0,dpr,0,0);}
 
 // ── plan a dream on the current canvas ──
-function makePlan(){
+function makePlan(opts={}){
   const G=D(),rnd=Math.random;
   let last=null;try{last=JSON.parse(ls.get(LS_LAST)||'null');}catch(e){}
   const S=340;
   const reg=G.chooseRegion({rand:rnd,last,S,WC,WR});
-  const form=G.chooseForm(rnd,last&&last.form);
+  const form=(opts.form&&G.FORMS.includes(opts.form))?opts.form:G.chooseForm(rnd,last&&last.form);   // opts.form: tests only
   ls.set(LS_LAST,JSON.stringify({fx:reg.fx,fy:reg.fy,form}));
   const X0=reg.fx-(S>>1),Y0=reg.fy-(S>>1);
   dw.style.left=(X0*CS)+'px';dw.style.top=(Y0*CS)+'px';dw.style.width=(S*CS)+'px';dw.style.height=(S*CS)+'px';
@@ -187,7 +187,7 @@ const ph=(t,[a,b])=>b<=a?(t>=a?1:0):Math.min(1,Math.max(0,(t-a)/(b-a)));
 const imPool=[];
 function startLevel(k){
   const P=plan,S=P.S,L=P.levels[k],b=L.b,G=D(),W=S*CS;
-  const on=G.blockForm(P.mask,S,P.X0,P.Y0,b,{picks:P.pickLocal,jitter:b<=2?4-b:0});   // fine edge dithered per cell
+  const on=G.blockForm(P.mask,S,P.X0,P.Y0,b,{picks:P.pickLocal,jitter:b<=2?4-b:0,scatter:b<=2?{R:b===1?6:4,pOut:0.3,pIn:0.2}:null});   // fine edge: dithered + scattered per cell
   const fl=v=>v-((v%b)+b)%b,pickBlock=new Map();
   for(const li of P.pickLocal)pickBlock.set(fl(P.X0+li%S)+':'+fl(P.Y0+((li/S)|0)),[orig[li*3],orig[li*3+1],orig[li*3+2]]);
   // level images are reused across dreams (no 1.8 MB allocations → no GC pauses mid-vision)
@@ -215,7 +215,7 @@ function stepLevel(k,budget){
 function finishLevel(k){
   const P=plan,S=P.S,L=P.levels[k],w=L.work,on=L.on;
   // the living edge: cells just outside the form (≤ 3 cells, Chebyshev) keep mutating as speckle
-  const R=3,dh=new Uint8Array(S*S),band=[],seen=new Uint8Array(S*S);
+  const R=5,dh=new Uint8Array(S*S),band=[],seen=new Uint8Array(S*S);
   for(let y=0;y<S;y++){let last=-1e9;for(let x=0;x<S;x++){if(on[y*S+x])last=x;if(x-last<=R)dh[y*S+x]=1;}
     last=1e9;for(let x=S-1;x>=0;x--){if(on[y*S+x])last=x;if(last-x<=R)dh[y*S+x]=1;}}
   for(let x=0;x<S;x++){let last=-1e9;for(let y=0;y<S;y++){const li=y*S+x;if(dh[li])last=y;if(y-last<=R&&!on[li]&&!seen[li]){seen[li]=1;band.push(li);}}
@@ -241,7 +241,8 @@ const dbg=(w,ms)=>{if(ms>6&&window.__dreamDbg)__dreamDbg.push([+(T0?(performance
 let lastMut=0;
 function mutateBand(L){   // speckle around the form keeps changing: real canvas colours, per cell, on the grid
   const t0=performance.now(),S=plan.S,bd=L.band,rnd=Math.random;
-  for(let q=0;q<bd.length;q++){if(rnd()>0.22)continue;const li=bd[q],x=li%S,y=(li/S)|0;
+  const cnt=Math.min(bd.length,1400);   // a fixed number of edge cells change per tick (cost bounded)
+  for(let z=0;z<cnt;z++){const li=bd[(rnd()*bd.length)|0],x=li%S,y=(li/S)|0;
     if(rnd()<0.12){wctx.clearRect(x*CS,y*CS,CS,CS);continue;}          // sometimes back to the real cell beneath
     const sx=Math.min(S-1,Math.max(0,x+((rnd()*13)|0)-6)),sy=Math.min(S-1,Math.max(0,y+((rnd()*13)|0)-6)),k=(sy*S+sx)*3;
     wctx.fillStyle='rgb('+orig[k]+','+orig[k+1]+','+orig[k+2]+')';wctx.fillRect(x*CS,y*CS,CS,CS);}
@@ -290,7 +291,7 @@ function frame(now){
     const t1=performance.now();wctx.putImageData(P.levels[lv].img,0,0);const pu=performance.now()-t1;pms+=pu;dbg('put'+lv,pu);P.shown=lv;lastMut=now;
     window.__dreamLast.level=P.levels[lv].b;
     (window.__dreamLast.levelStats||(window.__dreamLast.levelStats=[]))[lv]=P.levels[lv].stats;
-  } else if(!RM&&now-lastMut>110&&P.levels[lv].band){lastMut=now;const mm=mutateBand(P.levels[lv]);pms+=mm;dbg('mut',mm);}
+  } else if(!RM&&now-lastMut>80&&P.levels[lv].band){lastMut=now;const mm=mutateBand(P.levels[lv]);pms+=mm;dbg('mut',mm);}
   const fade=t>=TL.fade[0]?(RM?1:ease(ph(t,TL.fade))):0;
   dw.style.opacity=String(1-fade);
   if(frames.n<4000){frames.paint[frames.n]=pms;frames.t[frames.n]=t;frames.n++;}
@@ -336,7 +337,7 @@ function play(opts={}){
   stopCoachPulse();
   snap=D().snapshotCells(cells);sumBefore=D().checksumCells(cells);
   view0={z:zoom,px:panX,py:panY};
-  plan=makePlan();pickedShown=-1;lastMut=0;frames.n=0;frame.prev=0;
+  plan=makePlan(opts);pickedShown=-1;lastMut=0;frames.n=0;frame.prev=0;
   dw.style.opacity='1';wctx.clearRect(0,0,dw.width,dw.height);dw.style.display='block';
   uiTag.textContent=D().COPY.tag;uiSkip.textContent=D().COPY.skip;uiSkip.setAttribute('aria-label',D().COPY.skip+' (Esc)');
   uiCap.dataset.i='';uiCap.textContent=plan.caps[0];ui.classList.add('on');

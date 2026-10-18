@@ -451,14 +451,23 @@ test('dream growth: every refinement is more defined — saturation and contrast
     assert.ok(fams.size >= 2);
     for(const col of fams.values()){
     const pal = D.familyPalette(orig, S, col), mask = D.formMask(form, S);
-    const rows = L.map((b, k) => { const on = D.blockForm(mask, S, X0, Y0, b, { jitter: b <= 2 ? 4 - b : 0 }), fl = v => v - ((v % b) + b) % b;
+    const rows = L.map((b, k) => { const on = D.blockForm(mask, S, X0, Y0, b, { jitter: b <= 2 ? 4 - b : 0, scatter: b <= 2 ? { R: b === 1 ? 6 : 4, pOut: 0.3, pIn: 0.2 } : null }), fl = v => v - ((v % b) + b) % b;
       return D.formContrast(on, i => D.levelColour(pal, fl(X0 + i % S), fl(Y0 + ((i / S) | 0)), k, L.length), orig, S); });
     for(let k = 1; k < rows.length; k++){
-      assert.ok(rows[k].satIn > rows[k - 1].satIn || rows[k - 1].satIn >= 0.999, `${form} saturation rises at ${L[k]}: ${rows[k - 1].satIn} → ${rows[k].satIn}`);
+      assert.ok(rows[k].satIn > rows[k - 1].satIn, `${form} saturation rises at ${L[k]}: ${rows[k - 1].satIn} → ${rows[k].satIn}`);
       assert.ok(rows[k].contrast > rows[k - 1].contrast, `${form} brightness contrast rises at ${L[k]}`);
       assert.ok(rows[k].lumContrast > rows[k - 1].lumContrast, `${form} luminance contrast rises at ${L[k]}`);
     }
     assert.ok(rows[0].contrast > 1 && rows[4].satIn > rows[4].satOut, form + ' the form stands out');
+    // capped: the final level is vivid but never a flat pure colour
+    assert.ok(rows[4].satIn >= 0.88 && rows[4].satIn <= 0.95, form + ' final saturation capped ~0.92: ' + rows[4].satIn);
+    // hue and brightness jitter per cell at the final level: pixels stay readable
+    { const hs = [], vs2 = []; for(let x = 0; x < 300; x++){ const [r, g, b] = D.levelColour(pal, X0 + x, Y0 + 11, 4, 5);
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; let h = d ? (mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60 : 0; if(h < 0) h += 360; hs.push(h); vs2.push(mx); }
+      const sd = a => { const m = a.reduce((p, q) => p + q, 0) / a.length; return Math.sqrt(a.reduce((p, q) => p + (q - m) * (q - m), 0) / a.length); };
+      const hm = hs.map(h => h > 180 ? h - 360 : h);
+      assert.ok(sd(hm) > 1.5 && sd(hm) < 8, form + ' hue jitter of a few degrees: sd ' + sd(hm).toFixed(2));
+      assert.ok(sd(vs2) > 10, form + ' brightness jitter: sd ' + sd(vs2).toFixed(1)); }
     // alive, not flat: the 1-cell level keeps per-cell variation
     const vs = new Set(); for(let x = 0; x < 200; x++){ const v = D.levelColour(pal, X0 + x, Y0 + 7, 4, 5); vs.add(Math.max(...v)); }
     assert.ok(vs.size > 10, form + ' per-cell variation ' + vs.size);
@@ -471,4 +480,16 @@ test('dream growth: the fine edge is dithered per cell, not a smooth silhouette'
   let diff = 0, onN = 0; for(let i = 0; i < S * S; i++){ if(exact[i] !== dith[i]) diff++; if(exact[i]) onN++; }
   assert.ok(diff > 50, 'boundary cells differ: ' + diff);
   assert.ok(diff / onN < 0.08, 'but only at the edge: ' + (diff / onN).toFixed(3));
+});
+
+test('dream growth: the fast colour path matches levelColour; the fine edge is ragged both ways', () => {
+  const pal = []; for(let i = 0; i < 300; i++) pal.push([90 + i % 140, 12 + i % 40, 25 + i % 50]);
+  for(let k = 0; k < 5; k++){ const tb = D.levelTable(pal, k, 5), o = [0, 0, 0];
+    for(let x = 0; x < 2000; x++){ const a = D.levelColour(pal, x * 7, x * 13, k, 5), b = D.levelColourFast(tb, x * 7, x * 13, o);
+      for(let j = 0; j < 3; j++) assert.ok(Math.abs(a[j] - b[j]) <= 1, 'fast = reference'); } }
+  const S = 200, mask = D.formMask('heart', S);
+  const base = D.blockForm(mask, S, 10, 10, 1), sc = D.blockForm(mask, S, 10, 10, 1, { scatter: { R: 6, pOut: 0.3, pIn: 0.2 } });
+  let out = 0, inn = 0; for(let i = 0; i < S * S; i++){ if(!base[i] && sc[i]) out++; if(base[i] && !sc[i]) inn++; }
+  assert.ok(out > 40 && inn > 30, `form cells outside ${out}, speckle cells inside ${inn}`);
+  for(let i = 0; i < S * S; i++) assert.ok(sc[i] === 0 || sc[i] === 1, 'cells only: on or off, never blended');
 });
