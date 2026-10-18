@@ -105,7 +105,8 @@ test('namespacing: always pb-…-<hint>, fits the theme regex, never a real them
       assert.ok(H.HINT_NAMES.some(x => n.endsWith('-' + x)), n);
     }
   }
-  assert.equal(V.nsTheme('love'), 'pb-love-pull', 'pull is the default');
+  assert.equal(V.nsTheme('love'), 'pb-love-noise', 'honest noise is the default');
+  assert.equal(V.nsTheme('love', 'pull'), 'pb-love-pull');
   assert.equal(V.nsTheme('love', 'pull-dim'), 'pb-love-pull-dim');
   assert.equal(V.nsTheme('love', 'attractors'), 'pb-love-attractors');
   assert.equal(V.nsTheme('pb-love-pull'), 'pb-love-pull');
@@ -116,13 +117,14 @@ test('namespacing: always pb-…-<hint>, fits the theme regex, never a real them
   assert.deepEqual(V.parseNsTheme('pb-love-resonance'), { base: 'love', hint: 'ripples' });
 });
 
-test('hint registry: pull default, pull-dim, ripples (alias resonance), attractors', () => {
-  assert.deepEqual(H.hintsFor('love'), ['pull', 'pull-dim', 'ripples', 'attractors']);
-  assert.equal(H.defaultHint('love'), 'pull');
-  assert.equal(H.resolveHint('love', 'nope'), 'pull');
+test('hint registry: noise default; pull, pull-dim, ripples (alias resonance), attractors behind ?hint=', () => {
+  assert.deepEqual(H.hintsFor('love'), ['noise', 'pull', 'pull-dim', 'ripples', 'attractors']);
+  assert.equal(H.defaultHint('love'), 'noise');
+  assert.equal(H.resolveHint('love', 'nope'), 'noise');
   assert.equal(H.resolveHint('love', 'resonance'), 'ripples');
   assert.equal(H.resolveHint('love', 'RIPPLES'), 'ripples');
-  assert.equal(H.resolveHint('kites', 'nope'), 'pull');
+  assert.equal(H.resolveHint('kites', 'nope'), 'noise');
+  assert.equal(H.resolveHint('love', 'pull'), 'pull');
   const lum = a => { let s = 0; for(let i = 0; i < WT; i++) s += 0.2126 * a.R[i] + 0.7152 * a.G[i] + 0.0722 * a.B[i]; return s / WT; };
   for(const h of H.HINT_NAMES){
     const a = H.hintCanvas('love', h);
@@ -302,4 +304,88 @@ test('lineage: live saves chain onto the theme\'s latest save; share links keep 
   const s1 = await save('pb-love-pull', a.id);  assert.deepEqual([s1.depth, s1.parentId, s1.via], [1, a.id, 'share'], 'share link: parent depth + 1');
   const s2 = await save('pb-love-pull', s1.id); assert.equal(s2.depth, 2);
   const m = await save('pb-love-pull', 'zzzzzz'); assert.deepEqual([m.depth, m.via], [0, 'share-missing']);
+});
+
+test('noise hint (default) is a plain warm speckle: every cell a palette colour at 25–60%, no structure, no field', () => {
+  const a = H.hintCanvas('love', 'noise'), pal = H.paletteFor('love');
+  assert.equal(H.HINTS.noise.field, false, 'spreading follows the current canvas (hint weight 0)');
+  let ok = 0;
+  for(let i = 0; i < WT; i += 97){
+    const r = a.R[i], g = a.G[i], b = a.B[i];
+    if(pal.some(p => { const k = Math.max(r, g, b) / Math.max(1, Math.max(...p)); return k >= 0.24 && k <= 0.61 && Math.abs(p[0] * k - r) + Math.abs(p[1] * k - g) + Math.abs(p[2] * k - b) <= 4; })) ok++;
+  }
+  assert.ok(ok / Math.ceil(WT / 97) > 0.98, 'palette colour × 25–60%: ' + ok);
+  let lo = 1e9, hi = -1;
+  for(let by = 0; by < 660; by += 30) for(let bx = 0; bx < 900; bx += 30){ let s = 0; for(let y = by; y < by + 30; y++) for(let x = bx; x < bx + 30; x++){ const i = y * 900 + x; s += a.R[i] + a.G[i] + a.B[i]; } s /= 900; lo = Math.min(lo, s); hi = Math.max(hi, s); }
+  assert.ok(hi - lo < 30, 'no picture: block luminance spread ' + (hi - lo));   // ±3σ of 900-cell means
+  assert.equal(V.PARAMS.glowMinMax, 60); assert.equal(V.PARAMS.glowMinSat, 0.25);
+});
+
+// ── Dream it ──
+import * as D from '../lib/dream.js';
+test('dream forms: each is a visible, bounded shape; regions and forms vary', () => {
+  for(const f of D.FORMS){ const m = D.formMask(f, 120); let on = 0; for(const v of m) if(v > 0.5) on++;
+    assert.ok(on > 120 * 120 * 0.03 && on < 120 * 120 * 0.6, f + ' coverage ' + on / 14400); }
+  assert.equal(D.formWithArticle('eye'), 'an eye'); assert.equal(D.formWithArticle('heart'), 'a heart');
+  assert.ok(!D.FORMS.includes('sun'), 'copy lists heart, leaf, eye, wave');
+  const r = H.mulberry32(5); let last = null, lastF = null;
+  for(let k = 0; k < 20; k++){
+    const g = D.chooseRegion({ rand: r, last, S: 300, WC: 900, WR: 660 });
+    assert.ok(g.fx >= 156 && g.fx <= 744 && g.fy >= 156 && g.fy <= 504, JSON.stringify(g));
+    if(last) assert.ok(Math.hypot(g.fx - last.fx, g.fy - last.fy) / 900 >= 0.28 - 1e-9, 'a different region each time');
+    const f = D.chooseForm(r, lastF); assert.notEqual(f, lastF); last = g; lastF = f;
+  }
+});
+test('dream picks: scattered, one colour, the most common hue at the spot, far under the 8% cap', () => {
+  const a = H.hintCanvas('love', 'noise'), rgb = i => [a.R[i], a.G[i], a.B[i]];
+  for(const [x0, y0] of [[100, 100], [500, 300], [700, 520]]){
+    const p = D.pickScattered({ rgb, WC: 900, x0, y0, w: 24, h: 40 });
+    assert.ok(p.picks.length >= 3, 'picks ' + p.picks.length);
+    for(let i = 0; i < p.picks.length; i++) for(let j = i + 1; j < p.picks.length; j++){
+      const A = p.picks[i], B = p.picks[j];
+      assert.ok(Math.max(Math.abs(A % 900 - B % 900), Math.abs(((A / 900) | 0) - ((B / 900) | 0))) >= 3, 'clear gaps');
+    }
+    for(const q of p.picks) assert.equal(D.hueBin(...rgb(q)), p.hue, 'one colour');
+    const lassoCells = p.picks.length * 9;          // each tiny loop ≤ 3×3 cells
+    assert.ok(lassoCells / (900 * 660) < 0.08 / 100, 'under the cap by a wide margin');
+  }
+});
+test('dream restore is exact: snapshot → (vision mutates) → restore gives identical cells + checksum', () => {
+  const cells = []; const r = H.mulberry32(9);
+  for(let i = 0; i < 5000; i++) cells.push({ c: '#' + ((r() * 0xffffff) | 0).toString(16).padStart(6, '0'), s: (r() * 4) | 0, w: r() < 0.2 ? 1 : 0 });
+  const before = D.checksumCells(cells), snap = D.snapshotCells(cells), copy = cells.map(x => ({ ...x }));
+  for(let i = 0; i < 5000; i += 3){ cells[i].c = '#ffffff'; cells[i].s = 1; cells[i].w = 0; }
+  assert.notEqual(D.checksumCells(cells), before, 'checksum sees changes');
+  D.restoreCells(cells, snap);
+  assert.equal(D.checksumCells(cells), before);
+  assert.deepEqual(cells.map(x => [x.c, x.s, x.w]), copy.map(x => [x.c, x.s, x.w ? 1 : 0]));
+});
+test('used the technique: deep zoom + ≥2 small scattered one-colour lassos + Evolve', () => {
+  const L = (cx, cy, hue, cells = 6, cellPx = 12, colour = [40, 160, 60]) => ({ cells, cx, cy, hue, colour, cellPx });
+  assert.equal(D.usedTechnique([L(10, 10, 4), L(20, 14, 5)], true).used, true, 'adjacent hue bins count as one colour');
+  assert.equal(D.usedTechnique([L(10, 10, 0), L(20, 14, 11)], true).used, true, 'hue wraps around');
+  assert.equal(D.usedTechnique([L(10, 10, 4), L(20, 14, 4)], false).used, false, 'needs Evolve');
+  assert.equal(D.usedTechnique([L(10, 10, 4, 6, 3), L(20, 14, 4, 6, 3)], true).used, false, 'not zoomed deep');
+  assert.equal(D.usedTechnique([L(10, 10, 4), L(11, 11, 4)], true).used, false, 'not scattered');
+  assert.equal(D.usedTechnique([L(10, 10, 4), L(20, 14, 8)], true).used, false, 'two colours');
+  assert.equal(D.usedTechnique([L(10, 10, 4), L(20, 14, -1)], true).used, false, 'one coloured, one dark');
+  assert.equal(D.usedTechnique([L(10, 10, 4, 900)], true).used, false, 'one big lasso');
+  assert.equal(D.usedTechnique([L(10, 10, -1, 6, 12, [10, 10, 20]), L(30, 10, -1, 6, 12, [12, 11, 22])], true).used, true, 'dark pixels of one shade');
+});
+
+// ── dream-event validation (endpoint disabled by default) ──
+import { validateDreamEvent } from '../lib/dream-event.js';
+test('dream-event: whitelists fields, drops anything personal', () => {
+  const r = validateDreamEvent({ v:1, variant:'B', hint:'noise', dream:'completed', dreamMs:11600, lassos:3,
+    usedTechnique:true, evolved:true, ip:'1.2.3.4', contributorId:'abc', ua:'x' });
+  assert.ok(r.ok);
+  assert.deepEqual(Object.keys(r.row).sort(), ['dream','dream_ms','evolved','first_lasso_ms','hint','kiosk','lasso_within_30s','lassos','reduced_motion','replays','returning','shared','used_technique','v','variant'].sort());
+  assert.equal(r.row.used_technique, true);
+  assert.equal(validateDreamEvent({ variant:'b', hint:'<script>', dream:'completed' }).ok, false);
+  assert.equal(validateDreamEvent({ variant:'b', hint:'noise', dream:'hacked' }).ok, false);
+});
+test('dream-event endpoint is off unless DREAM_EVENTS_ENABLED=1', async () => {
+  const { onRequestPost } = await import('../functions/api/dream-event.js');
+  const res = await onRequestPost({ request:new Request('http://x/api/dream-event',{method:'POST',body:'{}'}), env:{} });
+  assert.equal(res.status, 404);
 });

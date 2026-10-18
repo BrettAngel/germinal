@@ -1135,7 +1135,8 @@ window.GERM_READY=new Promise(res=>{window.__germReady=res;setTimeout(res,6000);
 <script type="module">
 import * as V from '/lib/variant.js';
 import * as H from '/lib/hints.js';
-window.GERM={V,H};
+import * as D from '/lib/dream.js';
+window.GERM={V,H,D};
 window.__germReady();
 </script>
 <script>
@@ -1830,7 +1831,10 @@ function ensureHintField(){const key=themeNow()+'|'+hintNow();if(hintFieldKey===
   const h=GERM.H.hintCanvas(themeNow(),hintNow());
   HGX=new Float32Array(WT);HGY=new Float32Array(WT);HGM=new Float32Array(WT);
   gradField(h.R,h.G,h.B,HGX,HGY,HGM);hintFieldKey=key;}
-function hintWeight(){return Math.pow(0.5,(liveContribs||0)/GERM.V.PARAMS.hintHalfLife);}
+function hintWeight(){
+  // No hint (honest noise / warm speckle): spreading follows the current canvas from the start.
+  const h=GERM.H.HINTS[hintNow()];if(h&&h.field===false)return 0;
+  return Math.pow(0.5,(liveContribs||0)/GERM.V.PARAMS.hintHalfLife);}
 let _dimPal=null,_dimPalKey='';
 function dimPal(){const k=themeNow();if(_dimPal&&_dimPalKey===k)return _dimPal;
   const tmp=document.createElement('canvas').getContext('2d');
@@ -1940,6 +1944,7 @@ function nextGen(){
   // Snapshot before evolving so reveal shows pre-evolution state
   if(stabCount()>0&&generation===1) snapshotCurrentStabilisation();
   stepGen();renderAll();updateStats();archiveState();
+  if(userEra&&window.DREAM)DREAM.onEvolve();
 }
 
 let autoOn=false,autoT=null;
@@ -2129,7 +2134,7 @@ function applyLasso(era){
   // PROTOTYPE (tuned engine): a loop covering > looseCells (1,200) cells makes
   // LOOSE holds — they keep their pixels but don't spread and release faster.
   // A tighter loop over a cell makes it firm again.
-  let area=0;
+  let area=0;const lassoIdx=[];
   if(!era)for(let r=minR;r<=maxR;r++)for(let c=minC;c<=maxC;c++)if(ptInPoly(c*CS+CS/2,r*CS+CS/2,wp))area++;
   const wide=!era&&window.GERM&&GERM.V.PARAMS&&area>GERM.V.PARAMS.looseCells;
   for(let r=minR;r<=maxR;r++){
@@ -2140,10 +2145,11 @@ function applyLasso(era){
       else{
         if(cells[i].s===0){cells[i].s=1;cells[i].w=wide?1:0;userOwnedCells.add(i);count++;}
         else{if(cells[i].s<3){cells[i].s++;upgraded++;count++;}if(!wide)cells[i].w=0;}
-        chosenCells.add(i);
+        chosenCells.add(i);lassoIdx.push(i);
       }
     }
   }
+  if(window.DREAM)DREAM.onLasso(era,lassoIdx);
   if(!era&&count>0){
     ctx.save();ctx.globalAlpha=upgraded>.3*count?.22:.15;
     ctx.fillStyle=upgraded>.3*count?'#ffeeaa':'#e8d090';
@@ -2161,7 +2167,7 @@ function applyLasso(era){
     const totalOwned=userOwnedCells.size;
     const pct=totalOwned/WT;
     if(pct>TOLERANCE_MAX){
-      showToast(`⚠ Selection too broad (${Math.round(pct*100)}%) — zoom in for higher affinity`);
+      showToast((window.DREAM&&DREAM.overCapLine())||`⚠ Selection too broad (${Math.round(pct*100)}%) — zoom in for higher affinity`);
     }else if(count<20){
       showToast(`${count} cells — precise selection ✦`);
     }else if(count<100){
@@ -3443,6 +3449,7 @@ window.dismissSim=async function(){
   hidePanel('simPanel');
   await startFromLive();
   beginUserEra();
+  if(window.DREAM){DREAM.afterIntro();return;}   // PROTOTYPE: "Dream it"
   // Show onboarding only if never seen before
   if(!localStorage.getItem('la_onboarded')){
     const ob=document.getElementById('onboard');
@@ -3457,6 +3464,8 @@ window.skipSim=async function(){
   if(genesisPromise)await Promise.race([genesisPromise.catch(()=>{}),new Promise(r=>setTimeout(r,3000))]);
   await startFromLive();
   beginUserEra();
+  // PROTOTYPE: "Dream it" (dream-ui.js) replaces the text onboarding panel.
+  if(window.DREAM){DREAM.afterIntro();return;}
   if(!localStorage.getItem('la_onboarded')){
     const ob=document.getElementById('onboard');
     ob.style.display='flex';ob.style.opacity='1';ob.style.pointerEvents='auto';
@@ -3597,6 +3606,7 @@ async function saveToServer(){
     // needed when the domain moves.
     const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
     currentShareUrl = `${base}app.html?c=${data.shareId}`;
+    if(window.DREAM)DREAM.onShare();
     return currentShareUrl;
   }catch(e){
     console.warn('Server save failed, using fallback:', e.message);
@@ -3791,7 +3801,7 @@ checkShareUrl().then(isShare => {
     beginUserEra();
     renderOvl();updatePropHUD && updatePropHUD();
     archiveState();
-    showToast('Zoom in · Lasso what resonates · Evolve');
+    if(!(window.DREAM&&DREAM.afterIntro()))showToast('Zoom in · Lasso what resonates · Evolve');
   }
 }).catch(err=>{
   // checkShareUrl failed (e.g. network) — fall back to genesis
@@ -3871,6 +3881,7 @@ async function quickStart(){
   document.getElementById('onboard').classList.add('done');
   await startFromLive();
   renderAll();beginUserEra();
+  if(window.DREAM&&DREAM.afterIntro())return;   // PROTOTYPE: first visit / kiosk attract → the vision
   showToast(KIOSK?'Drag to lasso what resonates · then press Evolve':'Welcome back — Zoom · Lasso · Evolve');
 }
 
@@ -3892,5 +3903,6 @@ function updatePropHUD(){
   if(hudP)hudP.textContent=pct+'%';
 }
 </script>
+<script src="/dream-ui.js"></script>
 </body>
 </html>
