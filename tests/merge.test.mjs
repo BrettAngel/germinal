@@ -394,3 +394,50 @@ test("dream-event endpoint is off unless DREAM_EVENTS_ENABLED is '1' or 'true' (
   // enabled but no DB configured → 503 (never reaches Supabase in tests)
   assert.equal((await onRequestPost({ request:req(), env:{ DREAM_EVENTS_ENABLED:'True' } })).status, 503);
 });
+
+// ── Dream it: the form is grown from canvas pixels, coarse → fine ──
+test('dream form masks are filled silhouettes (binary, no outline-only shapes)', () => {
+  for(const f of D.FORMS){ const S = 120, m = D.formMask(f, S);
+    for(const v of m) assert.ok(v === 0 || v === 1, f + ' mask is binary');
+    // filled: most inside cells have all 4 neighbours inside too (an outline would fail this)
+    let inside = 0, interior = 0;
+    for(let y = 1; y < S - 1; y++) for(let x = 1; x < S - 1; x++){ const i = y * S + x; if(!m[i]) continue; inside++;
+      if(m[i - 1] && m[i + 1] && m[i - S] && m[i + S]) interior++; }
+    assert.ok(interior / inside > 0.85, f + ' is filled: interior share ' + (interior / inside).toFixed(2));
+  }
+});
+test('dream growth: world-grid blocks 16→8→4→2→1, sampled canvas colours, picks always held', () => {
+  assert.deepEqual(D.GROW_LEVELS, [16, 8, 4, 2, 1]);
+  const S = 340, X0 = 283, Y0 = 117, rand = H.mulberry32(9);
+  const pal0 = [[200, 40, 60], [220, 120, 40], [150, 30, 110]];
+  const orig = new Uint8Array(S * S * 3);
+  for(let i = 0; i < S * S; i++){ const p = pal0[(rand() * 3) | 0], k = 0.25 + rand() * 0.35;
+    orig[i * 3] = Math.round(p[0] * k); orig[i * 3 + 1] = Math.round(p[1] * k); orig[i * 3 + 2] = Math.round(p[2] * k); }
+  const canvasColours = new Set(); for(let i = 0; i < S * S; i++) canvasColours.add(orig[i * 3] + ',' + orig[i * 3 + 1] + ',' + orig[i * 3 + 2]);
+  const colour = [orig[0], orig[1], orig[2]];
+  const pal = D.familyPalette(orig, S, colour);
+  assert.ok(pal.length >= 8);
+  for(const c of pal){ assert.ok(canvasColours.has(c.join(',')), 'palette colour comes from a real cell');
+    assert.equal(D.hueBin(...c), D.hueBin(...colour), 'one colour family'); }
+  const mask = D.formMask('heart', S), picks = [5 * S + 7, 300 * S + 333];
+  let prevErr = Infinity, prevBlocks = 0;
+  for(const b of D.GROW_LEVELS){
+    const on = D.blockForm(mask, S, X0, Y0, b, { picks });
+    for(const p of picks) assert.equal(on[p], 1, 'picks always hold');
+    // every block of the world grid is uniformly on/off (except the forced picks)
+    const blocks = new Map(); let err = 0;
+    for(let y = 0; y < S; y++) for(let x = 0; x < S; x++){ const li = y * S + x; if(picks.includes(li)) continue;
+      const key = Math.floor((X0 + x) / b) + ':' + Math.floor((Y0 + y) / b);
+      if(!blocks.has(key)) blocks.set(key, on[li]); else assert.equal(blocks.get(key), on[li], 'block ' + key + ' uniform at ' + b);
+      if(on[li] !== mask[li]) err++;
+      if(on[li]){ const gx = X0 + x, gy = Y0 + y; const c = D.blockColour(pal, gx - gx % b, gy - gy % b);
+        if(x % 37 === 0 && y % 41 === 0) assert.ok(canvasColours.has(c.join(',')), 'block colour is a canvas colour'); } }
+    const onBlocks = [...blocks.values()].filter(Boolean).length;
+    assert.ok(err <= prevErr, `detail improves at ${b}: ${err} vs ${prevErr}`);
+    assert.ok(onBlocks > prevBlocks, 'more, finer blocks at ' + b);
+    prevErr = err; prevBlocks = onBlocks;
+  }
+  assert.equal(prevErr, 0, 'at 1 cell the form is exact');
+  // refinement keeps colour: a sub-block sharing its parent's origin keeps the parent's colour
+  assert.deepEqual(D.blockColour(pal, 288, 128), D.blockColour(pal, 288, 128));
+});

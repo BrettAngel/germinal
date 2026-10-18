@@ -2,11 +2,14 @@
 // A labelled 8–12 s vision played on the visitor's ACTUAL current canvas:
 //   (a) zoom into the noise  (b) a visible pointer lassos a few scattered
 //   pixels of one colour  (c) it presses Evolve, they hold and spread
-//   (d) zoom out: in this vision, a form — then it fades fully back.
-// It never writes to `cells` or to the real canvas: the vision is painted into
-// its own transparent layer (#dreamW, above #cvs in the world) over one
-// region; the bloom is a CSS radial mask and the fade a CSS opacity, so the
-// phone's compositor does the per-frame work. The real cells are checksummed
+//   (d) Evolve ×5 while stepping back: the held area grows as whole canvas
+//   cells, coarse blocks first (16 cells), each press subdividing them
+//   (16→8→4→2→1) into a form — then it fades fully back.
+// No outlines or drawn shapes, ever: the form is only canvas-grid pixels in
+// colours sampled from the canvas's own cells (lib/dream.js blockForm/
+// familyPalette/blockColour). It never writes to `cells` or to the real
+// canvas: the vision is painted into its own transparent layer (#dreamW,
+// above #cvs in the world) over one region; the fade is a CSS opacity. The real cells are checksummed
 // before/after (and restored from a snapshot if ever different). It never blocks: the overlay ignores
 // pointer events, Skip is visible from the first frame, and any tap, scroll or
 // key (Esc = skip) ends it immediately and passes through to the canvas.
@@ -72,7 +75,7 @@ coachX.addEventListener('click',e=>{e.stopPropagation();coach.classList.remove('
 // ── state ──
 let pending=false,playing=false,raf=0,T0=0,plan=null,snap=null,sumBefore='',view0=null,coachHidden=false,attractT=0;
 const frames={dt:new Float32Array(4000),paint:new Float32Array(4000),t:new Float32Array(4000),n:0};
-let img=null,imgS=0,orig=null,alpha=null,grow=null,mask=null,jit=null;   // reused buffers
+let imgS=0,orig=null;   // reused buffer: the region's real colours (read only)
 const sm=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
 const ease=t=>t<0?0:t>1?1:t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
 const hex2=(c,k)=>parseInt(c.substr(k,2),16);
@@ -143,104 +146,104 @@ function makePlan(){
   ls.set(LS_LAST,JSON.stringify({fx:reg.fx,fy:reg.fy,form}));
   const X0=reg.fx-(S>>1),Y0=reg.fy-(S>>1);
   dw.style.left=(X0*CS)+'px';dw.style.top=(Y0*CS)+'px';dw.style.width=(S*CS)+'px';dw.style.height=(S*CS)+'px';
-  // region buffers (reused across dreams)
-  if(!orig||imgS!==S){orig=new Uint8Array(S*S*3);alpha=new Float32Array(S*S);grow=new Float32Array(S*S);jit=new Float32Array(S*S);
-    img=wctx.createImageData(S*CS,S*CS);imgS=S;}
-  dw.width=S*CS;dw.height=S*CS;img.data.fill(0);
-  for(let y=0;y<S;y++)for(let x=0;x<S;x++){const i=(Y0+y)*WC+X0+x,c=cells[i].c,k=(y*S+x)*3;orig[k]=hex2(c,1);orig[k+1]=hex2(c,3);orig[k+2]=hex2(c,5);
-    const h=Math.imul((i+1)*2654435761,1597334677)>>>0;jit[y*S+x]=(h&1023)/1023;}
-  mask=G.formMask(form,S);grow.fill(0);alpha.fill(0);
-  // deep zoom: ~18 screen px per cell; picks inside the visible window
+  if(!orig||imgS!==S){orig=new Uint8Array(S*S*3);imgS=S;}
+  dw.width=S*CS;dw.height=S*CS;
+  for(let y=0;y<S;y++)for(let x=0;x<S;x++){const c=cells[(Y0+y)*WC+X0+x].c,k=(y*S+x)*3;orig[k]=hex2(c,1);orig[k+1]=hex2(c,3);orig[k+2]=hex2(c,5);}
+  const mask=G.formMask(form,S);
+  // deep zoom: ~18 screen px per cell; picks in the middle of the view
+  // (clear of the caption / Skip at the top and the toolbar below)
   const {w,h}=vpSize();const zD=Math.min(ZMAX,18/CS);const cw=Math.max(8,Math.floor(w/(zD*CS))),ch=Math.max(8,Math.floor(h/(zD*CS)));
-  // picks in the middle of the view: clear of the caption / Skip at the top and the toolbar below
   const ww=Math.max(6,Math.min(cw-6,30)),wh=Math.max(6,Math.min(Math.floor(ch*0.5),30));
   const rgb=i=>{const lx=i%WC-X0,ly=((i/WC)|0)-Y0,k=(ly*S+lx)*3;return[orig[k],orig[k+1],orig[k+2]];};
   const pk=G.pickScattered({rgb,WC,x0:reg.fx-(ww>>1),y0:reg.fy-(wh>>1)+1,w:ww,h:wh,maxPicks:5,minGap:3});
-  const colour=G.brighten(pk.colour.map(v=>Math.max(v,8)),215);
-  const fv=fitView();
-  return{S,X0,Y0,fx:reg.fx,fy:reg.fy,form,picks:pk.picks,colour,zD,fit:fv,
+  const pickLocal=pk.picks.map(p=>(((p/WC)|0)-Y0)*S+(p%WC-X0));
+  const pal=G.familyPalette(orig,S,pk.colour);          // real canvas colours of the picked family
+  const fv=fitView(),zF=Math.max(fv.z,Math.min(zD,Math.min(w,h*0.62)*0.88/(S*CS)));   // the form fills ~88% of the view
+  return{S,X0,Y0,fx:reg.fx,fy:reg.fy,form,mask,pal,picks:pk.picks,pickLocal,colour:pk.colour,zD,zF,fit:fv,
+    levels:G.GROW_LEVELS.map(b=>({b,img:null})),shown:-1,
     caps:G.COPY.dream.map(c=>typeof c==='function'?c(form):c)};
 }
-// Timeline (seconds). Normal ≈ 11.6 s, 4 beats; reduced motion ≈ 6.5 s of still cuts.
-const TL=RM?{zin:[0,0],pick:[0,2.2],evo:[2.2,3.6],zout:[3.6,5.6],fade:[5.6,6.5],end:6.5}
-           :{zin:[0,2.4],pick:[2.4,5.6],evo:[5.6,7.8],zout:[7.8,10.4],fade:[10.4,11.6],end:11.6};
+// Timeline (seconds). Normal ≈ 11.8 s in 4 beats: zoom in → lasso picks →
+// Evolve ×5 while stepping back (each press subdivides the held blocks
+// 16→8→4→2→1 cells) → fade. Reduced motion ≈ 6.5 s of still cuts, no zooming.
+// back = step back to the form view; out = out to the whole canvas while it fades.
+const TL=RM?{zin:[0,0],pick:[0,2.2],grow:[2.2,5.6],back:[2.2,2.2],press:[2.4,3.0,3.6,4.2,4.8],out:[5.6,5.6],fade:[5.6,6.5],end:6.5}
+           :{zin:[0,2.2],pick:[2.2,4.8],grow:[4.8,10.4],back:[4.8,6.0],press:[6.2,7.0,7.8,8.6,9.4],out:[10.4,11.8],fade:[10.4,11.8],end:11.8};
 function capAt(t){
   if(t<TL.pick[0]) return t<TL.zin[1]*0.5?0:1;
-  if(t<TL.evo[0]) return RM&&t<1.1?0:2;
-  if(t<TL.zout[0]) return 3;
+  if(t<TL.grow[0]) return RM&&t<1.1?0:2;
+  if(t<TL.press[2]) return 3;
   if(t<TL.fade[0]) return 4;
   return 5;
 }
 const ph=(t,[a,b])=>b<=a?(t>=a?1:0):Math.min(1,Math.max(0,(t-a)/(b-a)));
 
-// ── painting (only the vision region; only what changed) ──
-function paint(rx0,ry0,rw,rh){
-  const t0=performance.now(),S=plan.S,d=img.data,W=S*CS,[cr,cg,cb]=plan.colour;
-  for(let y=ry0;y<ry0+rh;y++)for(let x=rx0;x<rx0+rw;x++){
-    const li=y*S+x,a=alpha[li],j=0.62+0.38*jit[li];
-    const r=cr*j,g=cg*j,b=cb*j,A=Math.round(Math.min(1,a)*255);   // source-over ⇒ lerp(real, vision, a)
-    for(let yy=0;yy<CS;yy++){let p=((y*CS+yy)*W+x*CS)*4;for(let xx=0;xx<CS;xx++){d[p]=r;d[p+1]=g;d[p+2]=b;d[p+3]=A;p+=4;}}
-  }
-  wctx.putImageData(img,0,0,rx0*CS,ry0*CS,rw*CS,rh*CS);
+// ── painting: canvas pixels only, on the canvas's own grid ──
+// No outlines or drawn shapes: each level is an image of whole cells (CS×CS
+// px), every held cell one block colour sampled from the canvas. Levels are
+// prepared ahead (one per idle frame during the picks), then swapped in.
+function buildLevel(k){
+  const t0=performance.now(),P=plan,S=P.S,L=P.levels[k],b=L.b,G=D(),W=S*CS;
+  const on=G.blockForm(P.mask,S,P.X0,P.Y0,b,{picks:P.pickLocal});
+  const im=wctx.createImageData(W,W),d=im.data;
+  // a block holding a chosen pixel takes that pixel's own colour: the chosen pixels grow into the blocks
+  const fl=v=>v-((v%b)+b)%b,pickBlock=new Map();
+  for(const li of P.pickLocal)pickBlock.set(fl(P.X0+li%S)+':'+fl(P.Y0+((li/S)|0)),[orig[li*3],orig[li*3+1],orig[li*3+2]]);
+  for(let y=0;y<S;y++){const by=fl(P.Y0+y);
+    for(let x=0;x<S;x++){const li=y*S+x;if(!on[li])continue;
+      const bx=fl(P.X0+x),c=pickBlock.get(bx+':'+by)||G.blockColour(P.pal,bx,by),r=c[0],g=c[1],bb=c[2];
+      for(let yy=0;yy<CS;yy++){let q=((y*CS+yy)*W+x*CS)*4;for(let xx=0;xx<CS;xx++){d[q]=r;d[q+1]=g;d[q+2]=bb;d[q+3]=255;q+=4;}}}}
+  L.img=im;L.on=on;
   return performance.now()-t0;
 }
-let lastFull=0,growBox=null,formDone=false;
-function setMask(r){const v=r>=140?'none':`radial-gradient(closest-side,#000 ${r.toFixed(1)}%,transparent ${(r+22).toFixed(1)}%)`;
-  dw.style.webkitMaskImage=v;dw.style.maskImage=v;}
+function paintPicks(n,hi){   // the chosen pixels, lit on their own cell (cell-aligned, own hue)
+  const P=plan;wctx.clearRect(0,0,dw.width,dw.height);
+  for(let q=0;q<n;q++){const li=P.pickLocal[q],x=li%P.S,y=(li/P.S)|0,k=li*3;
+    const r=Math.min(255,orig[k]*hi),g=Math.min(255,orig[k+1]*hi),b=Math.min(255,orig[k+2]*hi);
+    wctx.fillStyle=`rgb(${r|0},${g|0},${b|0})`;wctx.fillRect(x*CS,y*CS,CS,CS);}
+}
+let pickedShown=-1;
 function frame(now){
   if(!playing)return;
   if(!T0){T0=now;}                      // the clock starts on the first frame (after the canvas has settled)
-  const t=(now-T0)/1000,P=plan,S=P.S;
+  const t=(now-T0)/1000,P=plan;
   if(frames.n<4000){frames.dt[frames.n]=now-(frame.prev||now);}
   frame.prev=now;let pms=0;
-  // view
+  // view: zoom in → hold deep → step back to the whole canvas while it grows
   const vc={x:vpSize().w/2,y:vpSize().h/2},fwx=(P.fx+.5)*CS,fwy=(P.fy+.5)*CS;
-  if(t<TL.zin[1]||RM&&t<TL.zout[0]){
+  if(t<TL.zin[1]||RM&&t<TL.grow[0]){
     const e=RM?1:ease(ph(t,TL.zin));const z=Math.exp(Math.log(view0.z)+(Math.log(P.zD)-Math.log(view0.z))*e);
     const s0x=fwx*view0.z+view0.px,s0y=fwy*view0.z+view0.py;const sx=s0x+(vc.x-s0x)*e,sy=s0y+(vc.y-s0y)*e;
     setView(z,sx-fwx*z,sy-fwy*z);
-  } else if(t<TL.zout[0]) setView(P.zD,vc.x-fwx*P.zD,vc.y-fwy*P.zD);
-  else {
-    const e=RM?1:ease(ph(t,TL.zout));const z=Math.exp(Math.log(P.zD)+(Math.log(P.fit.z)-Math.log(P.zD))*e);
+  } else if(t<TL.grow[0]) setView(P.zD,vc.x-fwx*P.zD,vc.y-fwy*P.zD);
+  else if(t<TL.out[0]){            // step back to the form view (centred on the form) and stay there for the presses
+    const e=RM?1:ease(ph(t,TL.back));const z=Math.exp(Math.log(P.zD)+(Math.log(P.zF)-Math.log(P.zD))*e);
+    setView(z,vc.x-fwx*z,vc.y-fwy*z);
+  } else {                         // out to the whole canvas while the vision fades
+    const e=RM?1:ease(ph(t,TL.out));const z=Math.exp(Math.log(P.zF)+(Math.log(P.fit.z)-Math.log(P.zF))*e);
     const s1x=fwx*P.fit.z+P.fit.px,s1y=fwy*P.fit.z+P.fit.py;const sx=vc.x+(s1x-vc.x)*e,sy=vc.y+(s1y-vc.y)*e;
     setView(z,sx-fwx*z,sy-fwy*z);
   }
-  // picks → highlighted (held) pixels
+  // picks → lit pixels
   const np=P.picks.length,pickDur=(TL.pick[1]-TL.pick[0])/Math.max(1,np);
   const picked=RM?(t>=TL.pick[0]?np:0):Math.min(np,Math.floor(Math.max(0,t-TL.pick[0])/pickDur+0.0001+(t>=TL.pick[1]?1:0)));
-  // growth after each Evolve press (2 presses)
-  const ev=ph(t,TL.evo),press1=0.28,press2=0.66;
-  const gR=RM?(t>=TL.evo[0]?4.8:0):(ev<press1?0:ev<press2?2.4*sm(press1,press1+.25,ev):2.4+2.4*sm(press2,press2+.25,ev));
-  const fz=t>=TL.zout[0]?(RM?1:ease(ph(t,TL.zout))):0;
-  const fade=t>=TL.fade[0]?(RM?1:ease(ph(t,TL.fade))):0;
-  // growth: repaint the small box around the picks each frame; the form is
-  // painted ONCE, then revealed by a CSS mask and faded by CSS opacity.
-  const needFull=t>=TL.zout[0];
-  if(!needFull){
-    if(!growBox){let a=1e9,b=1e9,c=-1,dd=-1;for(const p of P.picks){const lx=p%WC-P.X0,ly=((p/WC)|0)-P.Y0;a=Math.min(a,lx);b=Math.min(b,ly);c=Math.max(c,lx);dd=Math.max(dd,ly);}
-      const m=7;growBox=[Math.max(0,a-m),Math.max(0,b-m),Math.min(S-1,c+m),Math.min(S-1,dd+m)];}
-    const [a,b,c,dd]=growBox;
-    for(let y=b;y<=dd;y++)for(let x=a;x<=c;x++){let g=0;
-      for(let q=0;q<np;q++){const p=P.picks[q],dx=x-(p%WC-P.X0),dy=y-(((p/WC)|0)-P.Y0),dist=Math.hypot(dx,dy);
-        if(q<picked&&dist<0.5)g=1;else if(gR>0&&q<picked)g=Math.max(g,sm(gR,gR-1.6,dist)*(jit[y*S+x]>0.2?0.95:0.35));}
-      grow[y*S+x]=g;alpha[y*S+x]=g;}
-    pms=paint(a,b,c-a+1,dd-b+1);
-  } else {
-    if(!formDone){formDone=true;
-      for(let li=0;li<S*S;li++)alpha[li]=Math.max(grow[li],mask[li]*(0.55+0.45*jit[li]));
-      pms=paint(0,0,S,S);}
-    setMask(RM?200:fz*130-22);
-    dw.style.opacity=String(1-fade);
+  // which growth level is showing: one more after each Evolve press
+  let lv=-1;for(let k=0;k<TL.press.length;k++)if(t>=TL.press[k])lv=k;
+  // prepare levels ahead, one per frame, while the picks are made (no spike at a press)
+  if(t>=TL.pick[0]){const k=P.levels.findIndex(L=>!L.img);if(k>=0&&(k<=lv+1||t>=TL.pick[0]+0.15*(k+1)))pms+=buildLevel(k);}
+  if(lv<0){
+    if(picked!==pickedShown){pickedShown=picked;const t1=performance.now();paintPicks(picked,1.45);pms+=performance.now()-t1;}
+  } else if(lv!==P.shown){
+    if(!P.levels[lv].img)pms+=buildLevel(lv);
+    const t1=performance.now();wctx.putImageData(P.levels[lv].img,0,0);pms+=performance.now()-t1;P.shown=lv;
+    window.__dreamLast.level=P.levels[lv].b;
   }
+  const fade=t>=TL.fade[0]?(RM?1:ease(ph(t,TL.fade))):0;
+  dw.style.opacity=String(1-fade);
   if(frames.n<4000){frames.paint[frames.n]=pms;frames.t[frames.n]=t;frames.n++;}
-  // overlay: rings, the pointer drawing each lasso, the Evolve press
+  // overlay (screen space): only the pointer and the lasso it is drawing
   sizeCanvas();const {w,h}=vpSize();dctx.clearRect(0,0,w,h);
   const cellPx=zoom*CS;
-  if(t<TL.zout[0]+0.4){
-    dctx.lineWidth=2;
-    for(let q=0;q<picked;q++){const s=cellScreen(P.picks[q]);dctx.strokeStyle='rgba(232,214,168,'+(0.9-0.5*fz)+')';
-      dctx.beginPath();dctx.arc(s.x,s.y,Math.max(4,cellPx*0.95),0,Math.PI*2);dctx.stroke();}
-  }
   let px=null,py=null;
   if(t>=TL.pick[0]&&t<TL.pick[1]&&np&&!RM){
     const q=Math.min(np-1,Math.floor((t-TL.pick[0])/pickDur)),u=((t-TL.pick[0])-q*pickDur)/pickDur;
@@ -251,12 +254,11 @@ function frame(now){
       dctx.save();dctx.setLineDash([4,4]);dctx.strokeStyle='rgba(220,196,128,.95)';dctx.lineWidth=2;dctx.beginPath();dctx.arc(s.x,s.y,rr,0,a);dctx.stroke();dctx.restore();}
   }
   const et=evoTarget();
-  if(t>=TL.evo[0]&&t<TL.zout[0]){
-    if(!RM){const k=ev<0.2?ease(ev/0.2):1,from=np?cellScreen(P.picks[np-1]):{x:w/2,y:h/2};px=from.x+(et.x-from.x)*k;py=from.y+(et.y-from.y)*k;}
+  if(t>=TL.grow[0]&&t<TL.press[TL.press.length-1]+0.5){
+    if(!RM){const k=ease(ph(t,[TL.grow[0],TL.press[0]-0.05])),from=np?cellScreen(P.picks[np-1]):{x:w/2,y:h/2};px=from.x+(et.x-from.x)*k;py=from.y+(et.y-from.y)*k;}
     else{px=et.x;py=et.y;}
-    const pressed=(ev>=press1&&ev<press1+0.12)||(ev>=press2&&ev<press2+0.12)||RM;
+    const pressed=TL.press.some(p=>t>=p-0.05&&t<p+0.16)||RM;
     if(et.el)et.el.classList.toggle('dream-press',pressed);
-    if(pressed){dctx.strokeStyle='rgba(232,214,168,.8)';dctx.lineWidth=2;dctx.beginPath();dctx.arc(et.x,et.y,22,0,Math.PI*2);dctx.stroke();}
   } else if(et.el)et.el.classList.remove('dream-press');
   if(px!==null)drawPointer(px,py);
   // captions
@@ -281,8 +283,8 @@ function play(opts={}){
   stopCoachPulse();
   snap=D().snapshotCells(cells);sumBefore=D().checksumCells(cells);
   view0={z:zoom,px:panX,py:panY};
-  plan=makePlan();growBox=null;formDone=false;frames.n=0;frame.prev=0;lastFull=0;
-  dw.style.opacity='1';setMask(200);dw.style.display='block';
+  plan=makePlan();pickedShown=-1;frames.n=0;frame.prev=0;
+  dw.style.opacity='1';wctx.clearRect(0,0,dw.width,dw.height);dw.style.display='block';
   uiTag.textContent=D().COPY.tag;uiSkip.textContent=D().COPY.skip;uiSkip.setAttribute('aria-label',D().COPY.skip+' (Esc)');
   uiCap.dataset.i='';uiCap.textContent=plan.caps[0];ui.classList.add('on');
   playing=true;T0=0;
@@ -305,7 +307,7 @@ function end(reason,restoreView){
   if(sumAfter!==sumBefore){D().restoreCells(cells,snap);restored=true;renderAll();console.warn('dream: canvas restored from snapshot');}
   const fr=stats();
   window.__dreamLast={...window.__dreamLast,playing:false,reason,ms:Math.round(ms),sumBefore,sumAfter:D().checksumCells(cells),equal:sumAfter===sumBefore,restored,frames:fr};
-  snap=null;
+  snap=null;if(plan)plan.levels.forEach(L=>{L.img=null;L.on=null;});
   ls.set(LS_SEEN,'1');
   if(rec.dream==='playing'||rec.dream==='none'){rec.dream=reason;rec.dreamMs=Math.round(ms);}
   saveRec();
@@ -316,7 +318,7 @@ function stats(){
   const dt=Array.from(frames.dt.subarray(1,n)).sort((a,b)=>a-b),pt=Array.from(frames.paint.subarray(0,n)).sort((a,b)=>a-b);
   const q=(a,p)=>+a[Math.min(a.length-1,Math.floor(a.length*p))].toFixed(1);
   return{n,fps:+(1000/(dt.reduce((s,v)=>s+v,0)/dt.length)).toFixed(1),dtP50:q(dt,.5),dtP95:q(dt,.95),dtMax:q(dt,1),paintP50:q(pt,.5),paintP95:q(pt,.95),paintMax:q(pt,1),
-    over33ms:dt.filter(v=>v>33.4).length,
+    over33ms:dt.filter(v=>v>33.4).length,slowAt:Array.from(frames.dt.subarray(1,n)).map((v,i)=>[+v.toFixed(0),+frames.t[i+1].toFixed(2),+frames.paint[i+1].toFixed(1)]).filter(a=>a[0]>33.4).slice(0,40),
     worst:Array.from(frames.dt.subarray(0,n)).map((v,i)=>[+v.toFixed(0),+frames.t[i].toFixed(2)]).sort((a,b)=>b[0]-a[0]).slice(0,4)};
 }
 
@@ -353,13 +355,13 @@ setInterval(()=>{
   const lassoing=typeof lassoActive!=='undefined'&&lassoActive;
   if(!pulseUntil&&!lassoing&&coachState!=='quiet'&&now-lastInput>8000&&now-lastPulse>30000){lastPulse=now;pulseUntil=now+2800;coach.classList.add('pulse');runMini(now);}
 },500);
-function runMini(start){   // a 2.6 s mini-clip: tap a few same-colour dots → Evolve → they grow
-  const W=128,H=88;const dots=[[30,30],[52,58],[78,34],[96,62]];
+function runMini(start){   // a 2.6 s mini-clip: a few same-colour pixels chosen → Evolve → they grow as blocks, coarse to fine
+  const W=128,H=88,C=4;const dots=[[7,7],[13,14],[19,8],[24,15]];   // in 4-px cells
   const step=now=>{const t=(now-start)/1000;mctx.clearRect(0,0,W,H);mctx.fillStyle='#07070d';mctx.fillRect(0,0,W,H);
-    for(let k=0;k<70;k++){const x=(k*37)%W,y=(k*53)%H;mctx.fillStyle=k%5?'#1a1a28':'#262640';mctx.fillRect(x,y,3,3);}
-    const n=Math.min(4,Math.floor(t/0.35));const g=t>1.8?Math.min(1,(t-1.8)/0.6):0;
-    dots.forEach(([x,y],k)=>{mctx.fillStyle='#4fbf7a';if(g>0){mctx.globalAlpha=.55;mctx.beginPath();mctx.arc(x,y,3+9*g,0,7);mctx.fill();mctx.globalAlpha=1;}
-      mctx.fillRect(x-2,y-2,4,4);if(k<n){mctx.strokeStyle='#e8d6a8';mctx.lineWidth=2;mctx.beginPath();mctx.arc(x,y,7,0,7);mctx.stroke();}});
+    for(let k=0;k<70;k++){const x=((k*37)%32)*C,y=((k*53)%22)*C;mctx.fillStyle=k%5?'#1a1a28':'#262640';mctx.fillRect(x,y,C,C);}
+    const n=Math.min(4,Math.floor(t/0.35));const lv=t<1.8?0:t<2.1?3:t<2.4?2:1;   // block half-size in cells
+    dots.forEach(([x,y],k)=>{if(lv){mctx.fillStyle='#3f9a62';mctx.fillRect((x-lv)*C,(y-lv)*C,(2*lv+1)*C,(2*lv+1)*C);}
+      mctx.fillStyle=k<n?'#8fe8ae':'#4fbf7a';mctx.fillRect(x*C,y*C,C,C);});
     const pr=t>1.5&&t<1.8;mctx.fillStyle=pr?'#e8d6a8':'rgba(232,214,168,.25)';mctx.fillRect(W-40,H-20,34,14);
     mctx.fillStyle=pr?'#0a0a14':'#e8d6a8';mctx.font='9px monospace';mctx.fillText('▶',W-27,H-9);
     if(t<2.8)miniRAF=requestAnimationFrame(step);};
@@ -401,9 +403,12 @@ function glowFamily(idx,col){   // first touch: the picked pixels glow and their
     const r=hex2(c,1),g=hex2(c,3),b=hex2(c,5);if(Math.max(r,g,b)<28)continue;if(Math.abs(r-col[0])+Math.abs(g-col[1])+Math.abs(b-col[2])<60)fam.push(i);}
   const start=performance.now(),dur=RM?700:1400,[br,bg,bb]=D().brighten(col,230);
   const step=now=>{if(playing)return;const t=(now-start)/dur;sizeCanvas();const {w,h}=vpSize();dctx.clearRect(0,0,w,h);if(t>=1)return;
-    const a=RM?0.6:Math.sin(Math.PI*t),cp=Math.max(3,zoom*CS);
-    dctx.fillStyle=`rgba(${br|0},${bg|0},${bb|0},${(0.55*a).toFixed(3)})`;for(const i of fam){const s=cellScreen(i);dctx.beginPath();dctx.arc(s.x,s.y,cp*0.9,0,7);dctx.fill();}
-    dctx.strokeStyle=`rgba(255,240,200,${(0.9*a).toFixed(3)})`;dctx.lineWidth=2;for(const i of pts.slice(0,120)){const s=cellScreen(i);dctx.beginPath();dctx.arc(s.x,s.y,cp*1.1,0,7);dctx.stroke();}
+    // cell-aligned fills only (the canvas's own grid), no circles or outlines
+    const a=RM?0.6:Math.sin(Math.PI*t),cp=zoom*CS,sq=(i,al)=>{const x=(i%WC)*CS*zoom+panX,y=((i/WC)|0)*CS*zoom+panY;
+      dctx.globalAlpha=al;dctx.fillRect(x,y,Math.max(1,cp),Math.max(1,cp));};
+    dctx.fillStyle=`rgb(${br|0},${bg|0},${bb|0})`;for(const i of fam)sq(i,0.5*a);
+    for(const i of pts.slice(0,400))sq(i,0.85*a);
+    dctx.globalAlpha=1;
     requestAnimationFrame(step);};
   requestAnimationFrame(step);
 }
