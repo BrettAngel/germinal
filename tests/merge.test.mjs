@@ -384,8 +384,13 @@ test('dream-event: whitelists fields, drops anything personal', () => {
   assert.equal(validateDreamEvent({ variant:'b', hint:'<script>', dream:'completed' }).ok, false);
   assert.equal(validateDreamEvent({ variant:'b', hint:'noise', dream:'hacked' }).ok, false);
 });
-test('dream-event endpoint is off unless DREAM_EVENTS_ENABLED=1', async () => {
-  const { onRequestPost } = await import('../functions/api/dream-event.js');
-  const res = await onRequestPost({ request:new Request('http://x/api/dream-event',{method:'POST',body:'{}'}), env:{} });
-  assert.equal(res.status, 404);
+test("dream-event endpoint is off unless DREAM_EVENTS_ENABLED is '1' or 'true' (any case)", async () => {
+  const { onRequestPost, eventsEnabled } = await import('../functions/api/dream-event.js');
+  for(const f of ['1','true','TRUE','True',' true ']) assert.equal(eventsEnabled({ DREAM_EVENTS_ENABLED:f }), true, f);
+  for(const f of [undefined,'','0','false','yes','on','2']) assert.equal(eventsEnabled({ DREAM_EVENTS_ENABLED:f }), false, String(f));
+  const req = () => new Request('http://x/api/dream-event',{method:'POST',body:'{}'});
+  assert.equal((await onRequestPost({ request:req(), env:{} })).status, 404);
+  assert.equal((await onRequestPost({ request:req(), env:{ DREAM_EVENTS_ENABLED:'false' } })).status, 404);
+  // enabled but no DB configured → 503 (never reaches Supabase in tests)
+  assert.equal((await onRequestPost({ request:req(), env:{ DREAM_EVENTS_ENABLED:'True' } })).status, 503);
 });

@@ -96,10 +96,27 @@ function saveRec(){
     ls.set(LS_STATS,JSON.stringify(st));
   }catch(e){}
 }
-// Optional anonymous event to the preview DB — OFF: needs a new table
-// (supabase/preview-migration-events.sql, not applied) and Brett's OK.
-const SEND_EVENTS=false;
-function sendEvent(){ if(!SEND_EVENTS)return; try{navigator.sendBeacon('/api/dream-event',JSON.stringify({...rec,lassos:rec.lassos.length}));}catch(e){} }
+// Anonymous per-session summary to the PREVIEW DB (approved by Brett, preview
+// only): sent only from preview deployments (*.pages.dev). Never from
+// germinal.studio; on localhost only with ?events=1 for testing. The server
+// endpoint is also off unless DREAM_EVENTS_ENABLED is set (preview env only).
+const SEND_EVENTS=(()=>{try{const h=location.hostname.toLowerCase();
+  if(h.endsWith('.pages.dev')&&h!=='germinal.pages.dev')return true;   // not the bare project host: that's production's alias
+  if((h==='localhost'||h==='127.0.0.1'||h==='[::1]')&&new URLSearchParams(location.search).get('events')==='1')return true;
+}catch(e){}return false;})();
+// One summary per page load, sent when the page is hidden/left (so skipped and
+// watched-only sessions count too). Only the fields the server keeps.
+let eventSent=false;
+function eventBody(){return {v:rec.v,variant:rec.variant,hint:rec.hint,kiosk:rec.kiosk,reducedMotion:rec.reducedMotion,returning:rec.returning,
+  dream:rec.dream,dreamMs:Math.round(rec.dreamMs||0),replays:rec.replays,firstLassoMs:rec.firstLassoMs==null?null:Math.round(rec.firstLassoMs),
+  lassoWithin30s:rec.lassoWithin30s,lassos:rec.lassos.length,evolved:rec.evolved,shared:rec.shared,usedTechnique:rec.usedTechnique};}
+function sendEvent(){
+  if(!SEND_EVENTS||eventSent||!rec.hint)return;       // rec.hint is set once the visitor reaches the canvas
+  eventSent=true;
+  try{navigator.sendBeacon('/api/dream-event',new Blob([JSON.stringify(eventBody())],{type:'application/json'}));}catch(e){}
+}
+addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')sendEvent();});
+addEventListener('pagehide',sendEvent);
 
 // ── geometry helpers ──
 function vpSize(){return{w:vpEl.clientWidth,h:vpEl.clientHeight};}
@@ -395,7 +412,7 @@ function onEvolve(){
   evolvesAfter++;
   if(!rec.evolved&&rec.handoverAt){
     rec.evolved=true;
-    const tq=D().usedTechnique(rec.lassos,true);rec.technique=tq;rec.usedTechnique=tq.used;saveRec();sendEvent();
+    const tq=D().usedTechnique(rec.lassos,true);rec.technique=tq;rec.usedTechnique=tq.used;saveRec();
   }
   if(evolvesAfter===1&&userOwnedCells&&userOwnedCells.size>0){   // first Evolve: step back to see the patch at a distance
     const f=fitView(),z0=zoom,p0x=panX,p0y=panY;

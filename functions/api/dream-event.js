@@ -1,20 +1,25 @@
 // Cloudflare Pages Function: POST /api/dream-event
 // Anonymous "Dream it" onboarding session summary (variant B prototype).
 //
-// DISABLED BY DEFAULT. It answers 404 unless the env var
-// DREAM_EVENTS_ENABLED === '1' AND the table from
-// supabase/preview-migration-events.sql exists (not applied, pending approval).
-// The client (dream-ui.js) also only sends when SEND_EVENTS = true.
-// Turning it on also needs the privacy page ("no analytics") updated first.
+// DISABLED BY DEFAULT. It answers 404 unless the env var DREAM_EVENTS_ENABLED
+// is '1' or 'true' (case-insensitive), set in the Cloudflare Pages PREVIEW env
+// only, and it needs the table from supabase/preview-migration-events.sql
+// (preview project, approved by Brett). Production has no flag, so it is 404.
+// The client (dream-ui.js) only sends from *.pages.dev hosts.
 import { createClient } from '@supabase/supabase-js';
 import { validateDreamEvent } from '../../lib/dream-event.js';
 
 const MAX = 2048;
 
+export function eventsEnabled(env){
+  const f = String((env && env.DREAM_EVENTS_ENABLED) ?? '').trim().toLowerCase();
+  return f === '1' || f === 'true';
+}
+
 export async function onRequestPost({ request, env }){
   const headers = { 'Content-Type':'application/json' };
   const out = (o, status=200) => new Response(JSON.stringify(o), { status, headers });
-  if(env.DREAM_EVENTS_ENABLED !== '1') return out({ error:'Not enabled' }, 404);
+  if(!eventsEnabled(env)) return out({ error:'Not enabled' }, 404);
   if(!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return out({ error:'Not configured' }, 503);
   if(Number(request.headers.get('Content-Length') || 0) > MAX) return out({ error:'Payload too large' }, 413);
   let body;

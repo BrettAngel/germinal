@@ -2,15 +2,14 @@
 -- Germinal: PREVIEW-ONLY migration for anonymous "Dream it" onboarding
 -- events (variant B / PR #6).
 --
--- STATUS: NOT APPLIED. Needs Brett's approval first. Do not run it on
--- production. Applying it is not enough to collect anything: the endpoint
--- functions/api/dream-event.js stays disabled until DREAM_EVENTS_ENABLED=1
--- is set in the Preview env, and the client needs SEND_EVENTS=true in
--- dream-ui.js. Until then, measurement lives only in the visitor's own
--- localStorage (germ_dream_log / germ_dream_stats).
+-- STATUS: APPROVED BY BRETT (Oct 2026) and being applied to the PREVIEW
+-- Supabase project (klzynejvehyzdimzzkjv) only. Never run it on production.
+-- Collection also needs DREAM_EVENTS_ENABLED=1 (or true) in the Cloudflare
+-- Pages PREVIEW env; the client (dream-ui.js) only sends from *.pages.dev.
+-- Visitors' own localStorage (germ_dream_log / germ_dream_stats) is kept too.
 --
--- Privacy: the privacy page from PR #5 says "no analytics". It must be
--- updated BEFORE this is switched on. Each row is one anonymous session
+-- Privacy: privacy.html ("Preview test versions") says that preview
+-- versions may record this summary and germinal.studio doesn't. Each row is one anonymous session
 -- summary, with no IP, no user agent, no contributor id, no cookie id and
 -- no canvas content. `day` is a date, not a timestamp.
 -- Security: same as preview-setup.sql. RLS on, no policies, and
