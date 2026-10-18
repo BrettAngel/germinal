@@ -1,11 +1,15 @@
 // PROTOTYPE (variant B branch) — "Dream it" onboarding (app.html).
-// A labelled ~14 s vision played on the visitor's ACTUAL current canvas with
+// A labelled ~17 s vision (18 real Evolves) played on the visitor's ACTUAL current canvas with
 // the REAL mechanics, sped up:
 //   (a) zoom into the noise  (b) a visible pointer lassoes a few scattered
-//   red-ish pixels (real applyLasso → real holds)  (c) 6 quick, accelerating
+//   red-ish pixels (real applyLasso → real holds)  (c) quick, accelerating
 //   cycles: lasso a few more red-ish cells next to what is held, then press
 //   Evolve (real nextGen → one engine generation)  (d) step back: a rough,
 //   crowd-made form (a heart, or something)  (e) rewind.
+// Multi-colour forms (flower, tree…): the pointer picks cells of one hue in
+// the centre/trunk, then cells of another in the petals/crown, and keeps
+// choosing small loops that hold mostly that part's hue; it never sets a colour,
+// and a form is only offered when the theme palette has those hues.
 // No stored image, no mask reveal: the form only softly biases which real
 // neighbouring cells get lassoed next (lib/dream.js chooseCycleTargets).
 // Before it starts, the canvas and its state (cells, generation, holds,
@@ -157,17 +161,26 @@ function makePlan(opts={}){
   let last=null;try{last=JSON.parse(ls.get(LS_LAST)||'null');}catch(e){}
   const theme=typeof themeNow==='function'?themeNow():'';
   // heart first for love (first visit); later plays and "Dream again" rotate heart → leaf → wave
-  const form=(opts.form&&G.FORMS.includes(opts.form))?opts.form:G.nextForm({last:last&&last.form,theme});   // opts.form: tests only
+  // multi-colour forms (flower, sun, tree, fish) only when this theme's palette has every part's hue: no colour is ever added
+  const pal=typeof themePal==='function'?themePal():[],eligible=f=>G.formEligible(f,pal);
+  let form=(opts.form&&G.FORMS.includes(opts.form))?opts.form:G.nextForm({last:last&&last.form,theme,eligible});   // opts.form: tests only
+  let ineligible=null;if(!eligible(form)){ineligible=form;form='heart';}   // (tests asking for e.g. a tree on love get the heart, and are told why)
   const S=G.formSize(form);
   const hue=hueCache[theme]!=null?hueCache[theme]:(hueCache[theme]=G.themeFamilyHue({theme,rgb:cellRGB,WT}));
-  // guard: of a few regions far from the last dream, the one with the most family-coloured cells near the start
-  const reg=G.chooseDreamRegion({rand:rnd,last,S,WC,WR,rgb:cellRGB,hue});
+  const parts=G.resolveParts(form,pal,hue),multi=parts.length>1,labels=G.formLabels(form,S);
+  const LB=multi?G.formLobes(form,S):null;
+  const lobeMask=multi?LB.lobes.map((l,k)=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=LB.id[i]===k+1?1:0;return m;}):null;
+  const partMask=parts.map(p=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=labels[i]===p.label?1:0;return m;});
+  // guard: of a few regions far from the last dream, the one with the most family-coloured cells near the start (each part's own hue)
+  const reg=G.chooseDreamRegion({rand:rnd,last,S,WC,WR,rgb:cellRGB,hue,parts:multi?parts:null,tries:multi?24:12});
   ls.set(LS_LAST,JSON.stringify({fx:reg.fx,fy:reg.fy,form}));
   const mask=G.formMask(form,S);
   const {w,h}=vpSize();const zD=Math.min(ZMAX,18/CS),fv=fitView();
   // step back, but stay close: the form's box ~3/4 of the view, end zoom 150–200% on phones (≤300% wide screens)
   const zF=Math.max(fv.z*1.5,Math.min(w<600?2.0:3.0,Math.max(1.5,Math.min(w,h*0.62)*0.75/(S*CS))));
   const zC=Math.min(zD,zF*1.8);                                    // cycles end here (zooming out as it grows)
+  // multi-colour: after the first colour's picks the view eases out so the whole form (e.g. every petal) is in view for the second
+  const zP=multi?Math.min(zD,Math.max(zC,Math.min(w,h*0.8)*0.92/(0.98*S*CS))):zD;
   // first picks: a few scattered red-ish pixels near the form's centre, in view
   const cw=Math.floor(w/(zD*CS)),ch=Math.floor(h/(zD*CS));
   const ww=Math.max(6,Math.min(cw-6,16)),wh=Math.max(6,Math.min(Math.floor(ch*0.45),16));
@@ -177,34 +190,48 @@ function makePlan(opts={}){
   // pointer choice only (no colour is changed): the first picks are clearly theme-coloured pixels
   // (red for love) when the spot has them, never near-black ones; the engine then does the rest
   const pickR=1.35,nearHole=hole?(i=>Math.hypot(i%WC+.5-HX,((i/WC)|0)+.5-HY)<hole.r+1.25*pickR+0.75):null;
-  const vivid=i=>G.familyScore(...cellRGB(i),hue)>=0.3;
-  const exclude=i=>(nearHole&&nearHole(i))||!vivid(i);
-  const pk={picks:[],hue:-1,colour:[0,0,0]};
-  for(const q of tune.starts){const sx=Math.round(reg.fx+q.dx*S),sy=Math.round(reg.fy+q.dy*S);
-    const qw=q.win||ww,qh=q.win||wh,pa={rgb:cellRGB,WC,x0:sx-(qw>>1),y0:sy-(qh>>1)+(q.win?0:2),w:qw,h:qh,maxPicks:q.n,minGap:3,prefer:G.binsNear(hue)};
-    let pq=G.pickScattered({...pa,exclude});if(!pq.picks.length)pq=G.pickScattered({...pa,exclude:nearHole});   // no vivid pixel at the spot: as before
-    pk.picks.push(...pq.picks);if(pk.hue<0){pk.hue=pq.hue;pk.colour=pq.colour;}}
-  const tl=G.dreamTimeline(RM,Math.max(1,pk.picks.length));
+  const X0=reg.fx-(S>>1),Y0=reg.fy-(S>>1);
+  const labelAt=i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;return x>=0&&y>=0&&x<S&&y<S?labels[y*S+x]:0;};
+  // multi-colour: distance (cells) from each box cell to the nearest cell of ANOTHER part, so a loop never reaches across
+  const roomMap=multi?parts.map(p=>{const d=new Float32Array(S*S).fill(1e9),oth=[];for(let i=0;i<S*S;i++)if(labels[i]&&labels[i]!==p.label)oth.push(i);
+    for(let i=0;i<S*S;i++){if(labels[i]!==p.label)continue;const x=i%S,y=(i/S)|0;let b=1e9;for(const j of oth){const q=Math.hypot(j%S-x,((j/S)|0)-y);if(q<b)b=q;}d[i]=b;}return d;}):null;
+  const roomOf=multi?(k=>i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;return x>=0&&y>=0&&x<S&&y<S?roomMap[k][y*S+x]:1e9;}):(()=>null);
+  const pks=parts.map((part,k)=>{
+    const vivid=i=>G.familyScore(...cellRGB(i),part.hue)>=0.3,inPart=i=>!multi||labelAt(i)===part.label;
+    const exclude=i=>(nearHole&&nearHole(i))||!vivid(i)||!inPart(i);
+    const pk={picks:[],hue:-1,colour:[0,0,0]};
+    for(const q of part.starts){const sx=Math.round(reg.fx+q.dx*S),sy=Math.round(reg.fy+q.dy*S);
+      const qw=q.win||ww,qh=q.win||wh,pa={rgb:cellRGB,WC,x0:sx-(qw>>1),y0:sy-(qh>>1)+(q.win?0:2),w:qw,h:qh,maxPicks:q.n,minGap:3,prefer:G.binsNear(part.hue)};
+      let pq=G.pickScattered({...pa,exclude});
+      if(!pq.picks.length&&!multi)pq=G.pickScattered({...pa,exclude:nearHole});   // no vivid pixel at the spot: as before
+      pk.picks.push(...pq.picks);if(pk.hue<0&&pq.picks.length){pk.hue=pq.hue;pk.colour=pq.colour;}}
+    if(!pk.picks.length){   // multi-colour part with no vivid pixel at its starts: its most vivid cells anywhere in the part
+      const c=[];for(let y=0;y<S;y++)for(let x=0;x<S;x++)if(labels[y*S+x]===part.label){const i=(Y0+y)*WC+X0+x;c.push([G.familyScore(...cellRGB(i),part.hue),i]);}
+      c.sort((a,b)=>b[0]-a[0]);for(const [,i] of c){if(pk.picks.length>=3)break;if(pk.picks.every(p=>Math.max(Math.abs(p%WC-i%WC),Math.abs(((p/WC)|0)-((i/WC)|0)))>=3))pk.picks.push(i);}}
+    return pk;});
+  const pk={picks:pks.flatMap(p=>p.picks),hue:pks[0].hue,colour:pks[0].colour};
+  const tl=G.dreamTimeline(RM,pks.map(p=>Math.max(1,p.picks.length)),parts.length);
   // strokes: every lasso and every Evolve tap, in order, with its time slot. Cycle 0 = the first
   // scattered picks; every later cycle circles new cells in the grown zone of influence. After
   // every lasso the pointer goes to Evolve and taps it.
   const strokes=[];
   const nC=tl.cycles.length;
   tl.cycles.forEach((c,k)=>{
-    if(c.phase==='pick'){const np=pk.picks.length,pd=(c.loopEnd-c.t0)/Math.max(1,np);
-      pk.picks.forEach((p,q)=>strokes.push({kind:'loop',phase:'pick',cycle:k,t0:c.t0+q*pd,t1:c.t0+(q+1)*pd,centre:p,r:pickR}));}
-    else{const L=(c.loopEnd-c.t0)/c.loops,r=G.cycleLoopR(k,nC,zD,zC,CS);   // loops grow in screen px across the cycles
+    if(c.phase==='pick'){const pp=pks[c.part]?pks[c.part].picks:[],np=pp.length,pd=(c.loopEnd-c.t0)/Math.max(1,np);
+      pp.forEach((p,q)=>strokes.push({kind:'loop',phase:'pick',cycle:k,part:c.part,t0:c.t0+q*pd,t1:c.t0+(q+1)*pd,centre:p,r:pickR}));}
+    else{const L=(c.loopEnd-c.t0)/c.loops,r=G.cycleLoopR(k,nC,zP,zC,CS);   // loops grow in screen px across the cycles
       for(let j=0;j<c.loops;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r,centre:null});}
     strokes.push({kind:'evo',cycle:k,t0:c.loopEnd,t1:c.press,ease:RM?0:c.ease});
   });
-  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,pickBin:pk.hue,colour:pk.colour,zD,zC,zF,fit:fv,tl,strokes,si:0,
+  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,ineligible,LB,lobeMask,
+    partCells:parts.map(()=>new Set()),lobeCells:multi?LB.lobes.map(()=>new Set()):null,pickByPart:pks.map(p=>p.picks.length),pickBin:pk.hue,colour:pk.colour,zD,zC,zF,zP,fit:fv,tl,strokes,si:0,
     cyc:[],ptr:null,pressUntil:-1,tapAt:-1,taps:[],easeT:null,lit:[],frozen:false,genMs:[],lassosApplied:0,evolves:0,
-    caps:G.COPY.dream.map(c=>typeof c==='function'?c(form):c),
+    caps:G.COPY.dream.map((c,i)=>typeof c==='function'?c(form):(i===2&&multi?G.COPY.dreamMulti:c)),
     pauseAt:Array.isArray(opts.pauseAt)?opts.pauseAt.slice().sort((a,b)=>a-b):null};   // opts.pauseAt: tests only
 }
 function capAt(t){const T=plan.tl;
   if(t<T.pick[0]) return t<T.zin[1]*0.5?0:1;
-  if(t<T.cycles[1].t0) return RM&&t<T.pick[0]+0.6?0:2;
+  if(t<T.cycles[Math.min(T.cycles.length-1,plan.parts.length)].t0) return RM&&t<T.pick[0]+0.6?0:2;
   if(t<T.zout[0]) return 3;
   if(t<T.fade[0]) return 4;
   return 5;
@@ -253,13 +280,34 @@ function formStats(cl){
   for(const i of cl){const x=i%WC-X0,y=((i/WC)|0)-Y0;if(x>=0&&y>=0&&x<S&&y<S&&P.mask[y*S+x])inF++;}
   let formN=0;for(let y=0;y<S;y++)for(let x=0;x<S;x++){if(!P.mask[y*S+x])continue;formN++;const [r,g,b]=cellRGB((Y0+y)*WC+X0+x);if(D().familyScore(r,g,b,P.hue)>0.25)red++;}
   let inHole=0;if(P.hole)for(const i of cl)if(Math.hypot(i%WC+.5-P.HX,((i/WC)|0)+.5-P.HY)<P.hole.r)inHole++;
-  return{held:cl.length,inForm:inF,outForm:cl.length-inF,inHole,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
+  // multi-colour: per part, how much of it is that part's hue, and how much is the OTHER part's hue (the colours stayed apart?)
+  const parts=P.multi?P.parts.map((p,k)=>{let n=0,own=0,oth=0,held=0;const o=P.parts[1-k];
+    for(let y=0;y<S;y++)for(let x=0;x<S;x++){if(P.labels[y*S+x]!==p.label)continue;n++;const i=(Y0+y)*WC+X0+x,c=cellRGB(i);
+      if(D().familyScore(...c,p.hue)>0.25)own++;if(o&&D().familyScore(...c,o.hue)>0.25)oth++;if(cells[i].s>0&&!S0.owned.has(i))held++;}
+    return{name:p.name,hue:p.hue,cells:n,held,own:+(own/n).toFixed(3),other:+(oth/n).toFixed(3)};}):undefined;
+  return{held:cl.length,...(parts?{parts}:{}),inForm:inF,outForm:cl.length-inF,inHole,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
 }
 function cycleTargets(k){
   const P=plan;if(P.cyc[k])return P.cyc[k];
   const cl=dreamCluster(),c=P.tl.cycles[k],st=P.strokes.filter(s=>s.cycle===k&&s.kind==='loop'&&s.phase==='cycle');
   if(c.phase==='pick')return(P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,picks:true,targets:[],before:formStats(cl),genBefore:generation});
   const r=st.length?st[0].r:2;
+  if(P.multi){   // loops shared between the form's lobes (each petal / ray, the centre…): each goes where the most is still to grow
+    const X0=P.fx-(P.S>>1),Y0=P.fy-(P.S>>1),LBs=P.LB.lobes;
+    const held=LBs.map((l,q)=>[...P.lobeCells[q]].filter(i=>cells[i].s>0));
+    const need=LBs.map((l,q)=>l.cells*Math.max(0.05,1-held[q].length/l.cells)),cnt=LBs.map(()=>0);
+    for(let j=0;j<c.loops;j++){let b=0,bv=-1;for(let q=0;q<cnt.length;q++){const v=need[q]/(cnt[q]+1)**2;if(v>bv){bv=v;b=q;}}cnt[b]++;}
+    const all=[];
+    LBs.forEach((l,q)=>{if(!cnt[q])return;const p=P.parts[l.part];
+      const seed=held[q].length?held[q]:[(Y0+Math.round(l.cy))*WC+X0+Math.round(l.cx)];   // a lobe nobody has reached yet: from its middle
+      const tq=D().chooseCycleTargets({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:seed,
+        WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.2,hue:p.hue,loopR:r,strict:true,room:P.roomOf(l.part),purity:0.4});
+      tq.forEach(o=>{o.part=l.part;o.lobe=q;all.push(o);});});
+    P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:all.map(o=>o.i),perLobe:cnt,targetRed:+(all.reduce((s,o)=>s+o.red,0)/Math.max(1,all.length)).toFixed(3),
+      targetsInForm:all.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};
+    all.forEach((o,j)=>{if(st[j]){st[j].centre=o.i;st[j].part=o.part;st[j].lobe=o.lobe;if(o.r)st[j].r=o.r;}});
+    return P.cyc[k];
+  }
   const tg=D().chooseCycleTargets({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:cl.length?cl:P.picks,WC,WR,mask:P.mask,S:P.S,fx:P.fx,fy:P.fy,
     ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:P.tune.fill,hue:P.hue,hole:P.hole,loopR:r});
   P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:tg.map(o=>o.i),targetRed:+(tg.reduce((s,o)=>s+o.red,0)/Math.max(1,tg.length)).toFixed(3),
@@ -275,7 +323,10 @@ function litHeld(list,t){
   dctx.globalAlpha=a;let last='';
   for(const i of list){
     const x=(i%WC)*cp+panX,y=((i/WC)|0)*cp+panY;if(x<-cp||y<-cp||x>w||y>h)continue;
-    const c=cells[i].c;if(c!==last){const [r,g,b]=D().brighten([hex2(c,1),hex2(c,3),hex2(c,5)],215);dctx.fillStyle=`rgb(${r|0},${g|0},${b|0})`;last=c;}
+    const c=cells[i].c;if(c!==last){const q=[hex2(c,1),hex2(c,3),hex2(c,5)];
+      // a near-black / grey cell has no hue to brighten: neutral highlight (overlay only), never an invented colour
+      if(Math.max(...q)<48||Math.max(...q)-Math.min(...q)<20)dctx.fillStyle='rgb(150,146,136)';
+      else{const [r,g,b]=D().brighten(q,215);dctx.fillStyle=`rgb(${r|0},${g|0},${b|0})`;}last=c;}
     dctx.fillRect(x,y,Math.max(1,cp),Math.max(1,cp));
   }
   dctx.globalAlpha=1;
@@ -292,7 +343,11 @@ function applyStroke(s){   // the real thing: a lasso through the app's own appl
     cycleTargets(s.cycle);   // (cycle 0: records the cluster before the first pick)
     const pts=strokePts(s);if(!pts)return 0;
     const t1=performance.now();
+    const before=P.multi?new Set(pendingSel):null;
     lassoPts=pts.map(toScreen);applyLasso(false);lassoPts=[];P.lassosApplied++;P.lit=[...pendingSel];
+    if(P.multi&&s.part!=null){const X0=P.fx-(P.S>>1),Y0=P.fy-(P.S>>1);
+      let lobe=s.lobe;if(lobe==null){const x=s.centre%WC-X0,y=((s.centre/WC)|0)-Y0;lobe=x>=0&&y>=0&&x<P.S&&y<P.S?P.LB.id[y*P.S+x]-1:-1;}
+      for(const i of pendingSel)if(!before.has(i)){P.partCells[s.part].add(i);if(lobe>=0)P.lobeCells[lobe].add(i);}}   // which part / lobe this loop grew
     return performance.now()-t1;
   }
   cycleTargets(s.cycle);
@@ -361,8 +416,11 @@ function frame(now){
   } else if(t<T.zout[0]){
     let u;
     if(RM){u=0;for(const c of T.cycles)if(t>=c.t0)u=c.k/Math.max(1,T.cycles.length-1);}   // cuts, one per cycle
+    else if(P.multi){const C2=T.cycles[Math.min(2,T.cycles.length-1)].t0;   // deep for the first colour → the whole form for the second → on out
+      z=t<C2?Math.exp(Math.log(P.zD)+(Math.log(P.zP)-Math.log(P.zD))*ease(ph(t,[C0,C0+0.45]))):Math.exp(Math.log(P.zP)+(Math.log(P.zC)-Math.log(P.zP))*ease(ph(t,[C2,C1])));
+      setView(z,vc.x-fwx*z,vc.y-fwy*z);u=null;}
     else u=ease(ph(t,[C0,C1]));
-    z=Math.exp(Math.log(P.zD)+(Math.log(P.zC)-Math.log(P.zD))*u);setView(z,vc.x-fwx*z,vc.y-fwy*z);
+    if(u!=null){z=Math.exp(Math.log(P.zD)+(Math.log(P.zC)-Math.log(P.zD))*u);setView(z,vc.x-fwx*z,vc.y-fwy*z);}
   } else if(t<T.fade[0]){
     const e=RM?1:ease(ph(t,T.zout));z=Math.exp(Math.log(P.zC)+(Math.log(P.zF)-Math.log(P.zC))*e);setView(z,vc.x-fwx*z,vc.y-fwy*z);
   } else {
@@ -437,7 +495,7 @@ function play(opts={}){
   if(opts.replay){rec.replays++;}
   if(rec.dream==='none')rec.dream='playing';
   const T=plan.tl;
-  window.__dreamLast={playing:true,mode:'engine',usedEngine:true,maskReveal:false,form:plan.form,S:plan.S,hue:plan.hue,region:plan.region,fx:plan.fx,fy:plan.fy,picks:plan.picks.length,pickBin:plan.pickBin,colour:plan.colour,
+  window.__dreamLast={playing:true,mode:'engine',usedEngine:true,maskReveal:false,form:plan.form,parts:plan.parts.map(p=>({name:p.name,hue:p.hue})),pickByPart:plan.pickByPart,ineligible:plan.ineligible,S:plan.S,hue:plan.hue,region:plan.region,fx:plan.fx,fy:plan.fy,picks:plan.picks.length,pickBin:plan.pickBin,colour:plan.colour,
     reducedMotion:RM,sumBefore,genBefore:generation,
     zF:+plan.zF.toFixed(2),zC:+plan.zC.toFixed(2),taps:[],
     timeline:{picks:[+T.pick[0].toFixed(2),+T.pick[1].toFixed(2)],cycles:T.cycles.map(c=>+c.dur.toFixed(2)),loops:T.cycles.map(c=>c.loops),ease:T.cycles.map(c=>c.ease),

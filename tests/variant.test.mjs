@@ -30,6 +30,22 @@ const MAIN_ENGINE_SHA256 = '86f763594a31999d0cf165e54451d3f143547c565be58fce1cdb
 test('engine: colour helpers, start canvas, pool, recognition field, stepGen/stepGenFast and encoding are byte-identical to origin/main', () => {
   assert.equal(crypto.createHash('sha256').update(engineText(app)).digest('hex'), MAIN_ENGINE_SHA256);
 });
+// ── palette and theme selection are origin/main's (Oct 18 palette check) ──
+// The default theme (input value "love"), normTheme, the ?theme= override and the
+// genesis bots' palettes, byte for byte; PALS/themePal and the full-spectrum
+// substrate, void sparks and cascade RAINBOW are inside the engine spans above.
+const THEME_SPANS = [['<input id="themeIn"', '/>', 2], ['function normTheme(raw){', "return t||'love';\n}", 0], ["if(QS.get('theme')){", '\n', 0],
+  ['function buildComplementaryPalettes(n){', '// ── Organic bot lasso ──', 0]];
+function themeText(s){ return THEME_SPANS.map(([a, b, k]) => { const i = s.indexOf(a); assert.ok(i >= 0, 'missing ' + a); const j = s.indexOf(b, i + a.length); return s.slice(i, j + (k || (b.startsWith('return') ? b.length : 0))); }).join('\n@@\n'); }
+const MAIN_THEME_SHA256 = 'e072957f59bac27e2df0df1b5ae80a47ffd1bb4c82d98aacc073644267fabd60';   // themeText(origin/main b70c892 app.html)
+test('palette/theme selection: default "love", normTheme, ?theme= and genesis palettes are byte-identical to origin/main', () => {
+  assert.equal(crypto.createHash('sha256').update(themeText(app)).digest('hex'), MAIN_THEME_SHA256);
+  // main's themePal rule; the input only ever holds the plain theme, so every theme gets main's palette
+  const keys = ['love', 'grief', 'hope', 'nature', 'joy'], pick = t => keys.find(k => t.toLowerCase().includes(k)) || 'hash:' + t;
+  for(const t of ['love', 'hope', 'nature', 'joy', 'grief', 'my cat', 'ocean']) assert.equal(pick(V.parseNsTheme(V.nsTheme(t)).base), pick(t), t);
+  assert.match(app, /ti\.value=baseTheme\(ti\.value\)/, 'a namespaced ?theme= is shown (and coloured) as the plain theme');
+  assert.match(app, /if\(!isShare && \(KIOSK \|\| lsGet\('germinal_genesis_seen'\)\)\)\{\n    quickStart\(\);/, "main's first-visit genesis / returning quickStart split");
+});
 test('engine: none of the removed tunings remain (tuned engine, gradient, hints, loose holds, SM2 map, glow guard)', () => {
   for(const gone of ['stepGenTuned', 'tunedOn', 'GERM.I', 'GERM.H', 'influence.js', 'hints.js', 'gradientStep', 'hintCanvas', 'encodeStab', 'looseCells', 'glowMinSat', 'startFromLive', 'stab64', 'chosenCells'])
     assert.ok(!app.includes(gone), gone + ' gone from app.html');
@@ -79,7 +95,7 @@ test('dream forms: each is a visible, bounded shape; regions and forms vary', ()
   for(const f of D.FORMS){ const m = D.formMask(f, 120); let on = 0; for(const v of m) if(v > 0.5) on++;
     assert.ok(on > 120 * 120 * 0.03 && on < 120 * 120 * 0.6, f + ' coverage ' + on / 14400); }
   assert.equal(D.formWithArticle('eye'), 'an eye'); assert.equal(D.formWithArticle('heart'), 'a heart');
-  assert.ok(!D.FORMS.includes('sun'), 'copy lists heart, leaf, eye, wave');
+  for(const f of ['flower', 'sun', 'tree', 'fish']) assert.ok(D.FORMS.includes(f) && D.FORM_PARTS[f].length === 2, f + ': a two-colour form');
   const r = mulberry32(5); let last = null, lastF = null;
   for(let k = 0; k < 20; k++){
     const g = D.chooseRegion({ rand: r, last, S: 300, WC: 900, WR: 660 });
@@ -158,10 +174,10 @@ test('dream form masks are filled silhouettes (binary, no outline-only shapes)',
   }
 });
 // ── Dream it: real selection + real Evolve, sped up (no mask reveal) ──
-test('dream timeline: many lasso → tap-Evolve cycles, each faster than the last; ~13–16 s; reduced motion ~8 s', () => {
+test('dream timeline: 16–20 lasso → tap-Evolve cycles, each faster than the last; ~15–18 s; reduced motion ~8 s', () => {
   for(const rm of [false, true]){
     const T = D.dreamTimeline(rm, 4), d = T.cycles.map(c => c.dur);
-    assert.ok(d.length >= (rm ? 6 : 10), 'many cycles: ' + d.length);
+    assert.ok(rm ? d.length >= 6 : d.length >= 16 && d.length <= 20, 'Evolves: ' + d.length);
     for(let k = 1; k < d.length; k++) assert.ok(d[k] < d[k - 1], `cycle ${k} faster: ${d[k - 1]} → ${d[k]}`);
     assert.equal(T.cycles[0].phase, 'pick'); assert.equal(T.cycles[0].loops, 4, 'cycle 0: the first scattered picks');
     for(const c of T.cycles.slice(1)){ assert.equal(c.phase, 'cycle'); assert.ok(c.loops >= 1); }
@@ -171,7 +187,7 @@ test('dream timeline: many lasso → tap-Evolve cycles, each faster than the las
     for(let k = 1; k < T.cycles.length; k++) assert.ok(Math.abs(T.cycles[k].t0 - T.cycles[k - 1].t1) < 1e-9, 'back to back');
     assert.ok(Math.abs(T.cycles[0].t0 - T.zin[1]) < 1e-9 && T.zout[0] >= T.cycles.at(-1).t1 - 1e-9 && T.fade[1] === T.end, 'order: zoom → cycles → step back → fade');
     if(rm){ assert.ok(T.end >= 6 && T.end <= 9, 'reduced ' + T.end); assert.ok(T.cycles.every(c => !c.ease), 'reduced motion: no eased transitions'); }
-    else { assert.ok(T.end >= 13 && T.end <= 15.5, 'normal (nominal; engine pauses add a little) ' + T.end); assert.equal(T.zin[1], 2.2, 'opening zoom unchanged');
+    else { assert.ok(T.end >= 15 && T.end <= 17.5, 'normal (nominal; engine pauses add a little) ' + T.end); assert.equal(T.zin[1], 2.0, 'opening zoom');
       assert.ok(T.cycles[0].ease >= 0.55 && T.cycles[0].ease <= 0.7 && T.cycles[1].ease >= 0.55 && T.cycles[1].ease <= 0.7, 'the first 2 Evolves ease over ~600 ms');
       assert.ok(T.cycles.slice(2).every(c => !c.ease), 'later Evolves are instant');
       for(const c of T.cycles.slice(0, 2)) assert.ok(c.t1 - c.press >= c.ease - 1e-9, 'the eased change fits before the next lasso'); }
@@ -260,17 +276,78 @@ test('dream eye: a wide, flat almond with an open pupil that the selection keeps
       assert.ok(d - 1.25 * o.r - 0.5 >= h.r, `loop around ${o.i} (r ${o.r.toFixed(2)}, ${d.toFixed(1)} from the pupil) clears it`); }
   }
 });
-test('dream forms rotate: heart first for love, then leaf → wave → heart (the eye is out); all sized alike', () => {
-  assert.equal(D.nextForm({ theme: 'love' }), 'heart', 'first visit on love: a heart');
+// main's palettes (app.html PALS), for the palette-honesty tests below
+const PAL = { love: ['#cc0033', '#dd1144', '#ff3366', '#ff6688', '#ff99aa', '#ffbbcc', '#ffcc00', '#ff8800', '#aa1133', '#660022'],
+  grief: ['#1a1a2e', '#2a2a40', '#334455', '#556677', '#778899', '#aabbcc', '#e0e8f0'], hope: ['#ffee88', '#ffcc00', '#88ccff', '#ffffff', '#aaffaa', '#ff8800'],
+  nature: ['#1a5a08', '#2a7a12', '#338814', '#55aa22', '#aaccaa', '#8b4513'], joy: ['#ff6600', '#ff8800', '#ffcc00', '#ff4499', '#66ccff', '#88eeff'] };
+test('PAL above is app.html PALS, byte for byte', () => {
+  for(const [k, v] of Object.entries(PAL)) assert.ok(app.includes(`  ${k}:${JSON.stringify(v).replace(/"/g, "'")},`), k);
+});
+test('dream forms rotate: heart first for love, then flower → leaf → wave (tree, sun, fish, eye drawable but out); all sized alike', () => {
+  const el = t => f => D.formEligible(f, PAL[t]);
+  assert.equal(D.nextForm({ theme: 'love', eligible: el('love') }), 'heart', 'first visit on love: a heart');
   assert.equal(D.nextForm({ theme: 'Love' }), 'heart');
-  const seq = []; let last = null; for(let k = 0; k < 6; k++){ last = D.nextForm({ last, theme: 'love' }); seq.push(last); }
-  assert.deepEqual(seq, ['heart', 'leaf', 'wave', 'heart', 'leaf', 'wave'], 'later plays and Dream again rotate');
-  assert.equal(D.nextForm({ last: 'eye', theme: 'love' }), 'wave', 'an old eye in storage moves on');
-  assert.deepEqual(D.ROTATION, ['heart', 'leaf', 'wave']); assert.ok(D.FORMS.includes('eye'), 'the eye is still drawable');
-  assert.equal(D.nextForm({ last: 'wave', theme: 'sea' }), 'heart', 'rotation is the same on any theme');
+  const seq = []; let last = null; for(let k = 0; k < 8; k++){ last = D.nextForm({ last, theme: 'love', eligible: el('love') }); seq.push(last); }
+  assert.deepEqual(seq, ['heart', 'flower', 'leaf', 'wave', 'heart', 'flower', 'leaf', 'wave'], 'love: the flower right after the heart; no tree (no green/brown in love)');
+  assert.equal(D.nextForm({ last: 'eye', theme: 'love', eligible: el('love') }), 'heart', 'an old eye in storage moves on');
+  assert.equal(D.nextForm({ last: 'sun', theme: 'love', eligible: el('love') }), 'heart', 'so does an old sun');
+  assert.deepEqual(D.ROTATION, ['heart', 'flower', 'leaf', 'wave']);
+  for(const f of ['eye', 'sun', 'fish', 'tree']) assert.ok(D.FORMS.includes(f) && !D.ROTATION.includes(f), f + ' drawable, out of the rotation');
+  assert.equal(D.nextForm({ theme: 'joy', eligible: el('joy') }), 'flower', 'another theme with the hues: its first multi-colour form');
+  assert.ok(['heart', 'leaf', 'wave'].includes(D.nextForm({ theme: 'nature', eligible: el('nature') })), 'nature has no yellow + pink: no flower');
+  const nat = []; last = 'heart'; for(let k = 0; k < 3; k++){ last = D.nextForm({ last, theme: 'nature', eligible: el('nature') }); nat.push(last); }
+  assert.deepEqual(nat, ['leaf', 'wave', 'heart'], 'nature skips the flower');
   assert.ok(D.ROTATION.includes(D.nextForm({ theme: 'sea' })));
   const n = f => { let c = 0; for(const v of D.formMask(f, D.formSize(f))) c += v; return c; };
-  for(const f of D.FORMS) assert.ok(Math.abs(n(f) - n('heart')) / n('heart') < 0.06, `${f} has about as many cells as the heart: ${n(f)} vs ${n('heart')}`);
+  for(const f of D.FORMS) assert.ok(Math.abs(n(f) - n('heart')) / n('heart') < (D.FORM_PARTS[f] ? 0.08 : 0.06), `${f} has about as many cells as the heart: ${n(f)} vs ${n('heart')}`);
+});
+test('palette honesty: a multi-colour form is offered only when the theme palette has every part hue', () => {
+  const H = (t, f) => { const p = D.resolveParts(f, PAL[t]); return p && p.map(x => x.hue); };
+  assert.deepEqual(H('love', 'flower'), [48, 345], 'love flower: yellow #ffcc00 centre, pink/red petals');
+  assert.deepEqual(H('love', 'sun'), [48, 355]);
+  assert.equal(H('love', 'tree'), null, 'love has no green or brown'); assert.equal(H('love', 'fish'), null, 'love has no blue');
+  assert.deepEqual(H('nature', 'tree'), [25, 105], 'nature: brown #8b4513 trunk, green crown');
+  assert.equal(H('nature', 'flower'), null); assert.deepEqual(H('joy', 'fish'), [200, 28]); assert.deepEqual(H('hope', 'flower'), [48, 200]);
+  for(const f of ['flower', 'sun', 'tree', 'fish']) assert.equal(H('grief', f), null, 'grief (greys/blue-greys): no multi-colour form');
+  assert.ok(D.paletteHas(['hsl(200,60%,48%)'], 200) && !D.paletteHas(['hsl(200,60%,48%)'], 48), 'hash palettes (hsl) are read too');
+  for(const t of Object.keys(PAL)) for(const h of [0, 48, 105, 200]) if(D.paletteHas(PAL[t], h))
+    assert.ok(D.paletteHues(PAL[t]).some(c => Math.min(Math.abs(c.h - h), 360 - Math.abs(c.h - h)) <= 25 && c.s >= 0.35), 'only real palette hues');
+});
+test('multi-colour forms: two parts, separate lobes (6 petals around the centre), timeline picks one colour then the other', () => {
+  const lob = f => D.formLobes(f, D.formSize(f)).lobes;
+  const fl = lob('flower'); assert.equal(fl.filter(l => l.part === 0).length, 1, 'one centre'); assert.equal(fl.filter(l => l.part === 1).length, 6, 'six petals');
+  const S = D.formSize('flower'), c = fl.find(l => l.part === 0);
+  assert.ok(Math.hypot(c.cx - S / 2 + 0.5, c.cy - S / 2 + 0.5) < 1, 'the centre is in the middle');
+  for(const p of fl.filter(l => l.part === 1)) assert.ok(Math.hypot(p.cx - S / 2, p.cy - S / 2) > S * 0.22, 'petals around it');
+  assert.equal(lob('tree').length, 2);
+  const T = D.dreamTimeline(false, [3, 6], 2);
+  assert.equal(T.cycles[0].phase, 'pick'); assert.equal(T.cycles[0].part, 0); assert.equal(T.cycles[0].loops, 3);
+  assert.equal(T.cycles[1].phase, 'pick'); assert.equal(T.cycles[1].part, 1); assert.equal(T.cycles[1].loops, 6);
+  assert.ok(T.cycles.slice(2).every(c => c.phase === 'cycle'));
+  assert.ok(T.cycles.length >= 16 && T.cycles.length <= 20 && T.end >= 15 && T.end <= 17.5, T.cycles.length + ' Evolves, ' + T.end + ' s');
+  for(let k = 1; k < T.cycles.length; k++) assert.ok(T.cycles[k].dur < T.cycles[k - 1].dur, 'accelerating');
+});
+test('multi-colour growth: loops stay in their part, never reach the other part, and hold mostly that part hue (pure loops)', () => {
+  const WC = 200, WR = 200, S = D.formSize('flower'), fx = 100, fy = 100, L = D.formLabels('flower', S), X0 = fx - (S >> 1), Y0 = fy - (S >> 1);
+  const r0 = mulberry32(21), col = new Array(WC * WR);
+  const rgb = i => col[i], lab = i => { const x = i % WC - X0, y = ((i / WC) | 0) - Y0; return x >= 0 && y >= 0 && x < S && y < S ? L[y * S + x] : 0; };
+  for(let i = 0; i < WC * WR; i++){ const k = r0(), red = lab(i) === 2 ? 0.55 : 0.15; col[i] = k < red ? [230, 40, 80] : k < red + 0.15 ? [250, 200, 10] : [12, 10, 16]; }   // dark + love red + love yellow (petals redder)
+  const mask = new Float32Array(S * S).map((_, i) => L[i] === 2 ? 1 : 0);
+  const centre = []; for(let y = 0; y < S; y++) for(let x = 0; x < S; x++) if(L[y * S + x] === 1) centre.push(x + y * S);
+  const room = i => { const x = i % WC - X0, y = ((i / WC) | 0) - Y0; let b = 1e9; for(const j of centre){ const d = Math.hypot(j % S - x, ((j / S) | 0) - y); if(d < b) b = d; } return b; };
+  const petal = []; for(let i = 0; i < WC * WR; i++) if(lab(i) === 2 && col[i][0] === 230) petal.push(i);
+  const tg = D.chooseCycleTargets({ rgb, isHeld: () => false, cluster: petal.slice(0, 40), WC, WR, mask, S, fx, fy, ring: 4, count: 8, loopR: 3, hue: 345, strict: true, room, purity: 0.4, rand: mulberry32(2) });
+  assert.ok(tg.length >= 3, 'targets ' + tg.length);
+  for(const t of tg){ assert.equal(lab(t.i), 2, 'inside the petals'); assert.ok(room(t.i) - 1.25 * t.r >= 0.75 - 1e-9, 'the loop never reaches the centre');
+    let s = 0, n = 0, R = Math.ceil(t.r * 1.25); for(let oy = -R; oy <= R; oy++) for(let ox = -R; ox <= R; ox++){ if(ox * ox + oy * oy > t.r * t.r * 1.5) continue; n++; s += D.familyScore(...rgb(t.i + oy * WC + ox), 345); }
+    assert.ok(s / n >= 0.4 - 1e-9, 'mostly petal-coloured under the loop: ' + (s / n).toFixed(2)); }
+});
+test('dream-ui: the vision never writes a colour (selection + nextGen only), multi-colour or not', () => {
+  const ui = fs.readFileSync(new URL('../dream-ui.js', import.meta.url), 'utf8');
+  assert.ok(!/cells\[[^\]]+\]\.c\s*=(?!=)/.test(ui), 'no cells[i].c = …');
+  assert.ok(!/\.c=lerp|lerpH\(|rnd\(pool|buildPool\(/.test(ui), 'no colour mixing or pool use');
+  assert.match(ui, /applyLasso\(false\)/); assert.match(ui, /nextGen\(\)/);
+  assert.match(ui, /G\.formEligible\(f,pal\)/, 'forms filtered by the real palette');
 });
 test('dream region guard: picks a start rich in the theme family (red for love), far from the last dream', () => {
   const WC = 900, WR = 660, r = mulberry32(8);
