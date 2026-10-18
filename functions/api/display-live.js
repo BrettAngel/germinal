@@ -11,6 +11,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { validateTheme } from '../../lib/validate.js';
 import { nsTheme } from '../../lib/variant.js';
+import { splitMotherData, SM2_B64_LENGTH } from '../../lib/merge.js';
 
 export async function onRequestGet(context){
   const { request, env } = context;
@@ -37,16 +38,18 @@ export async function onRequestGet(context){
       .from('mother_display').select('*').eq('theme', theme).maybeSingle();
     if(mErr) console.warn('mother_display query failed:', mErr.message);
     if(mother && mother.cell_data){
+      // PROTOTYPE: the stored live canvas may carry hold levels after ":v2:" (lib/merge.js).
+      const { cellData, stabMap } = splitMotherData(mother.cell_data);
       return json({
         theme:mother.theme, generation:mother.generation,
-        cellData:mother.cell_data, contributorCount:mother.contributor_count,
+        cellData, stabMap, contributorCount:mother.contributor_count,
         lastUpdated:mother.updated_at, source:'mother_display',
       });
     }
 
     const { data:latest, error:lErr } = await supabase
       .from('canvas_states')
-      .select('theme,generation,cell_data,created_at')
+      .select('theme,generation,cell_data,stab_map,created_at')
       .eq('theme', theme).order('created_at', { ascending:false }).limit(1).maybeSingle();
     if(lErr) console.warn('canvas_states query failed:', lErr.message);
     if(latest && latest.cell_data){
@@ -55,6 +58,7 @@ export async function onRequestGet(context){
       return json({
         theme:latest.theme, generation:latest.generation,
         cellData:latest.cell_data, contributorCount:count ?? null,
+        stabMap:(latest.stab_map && latest.stab_map.length === SM2_B64_LENGTH) ? latest.stab_map : null,
         lastUpdated:latest.created_at, source:'canvas_states',
       });
     }

@@ -7,7 +7,7 @@
 // code can never write a real theme's rows. Must be reworked before merging.
 import { createClient } from '@supabase/supabase-js';
 import { validateSaveBody, MAX_BODY_BYTES } from '../../lib/validate.js';
-import { decodeCells, encodeCells, decodeChosen, mergeIntoMother } from '../../lib/merge.js';
+import { decodeCells, decodeChosen, decodeStab, levelsFromCells, unpackMother, packMother, mergeIntoMother } from '../../lib/merge.js';
 import { nsTheme, PARAMS } from '../../lib/variant.js';
 
 function shortId(){ return Math.random().toString(36).slice(2,8); }
@@ -37,9 +37,15 @@ export async function onRequestPost(context){
   const { generation, parentId, cellData, stabMap, contributorId, baseGen } = v.value;
   const theme = nsTheme(v.value.theme);              // PROTOTYPE: unconditional namespace
 
-  const incoming = decodeCells(cellData);
-  if(!incoming) return bad('cellData could not be decoded');
-  const chosen = decodeChosen(stabMap);              // null if absent / wrong size
+  const incCells = decodeCells(cellData);
+  if(!incCells) return bad('cellData could not be decoded');
+  // Hold levels / loose / chosen travel in stabMap (SM2, lib/merge.js). Older
+  // clients sent a 1-bit chosen map; anything else → levels from the held bit.
+  const sm2 = decodeStab(stabMap);
+  const incoming = sm2
+    ? { cells: incCells, level: sm2.level, loose: sm2.loose }
+    : { cells: incCells, level: levelsFromCells(incCells), loose: new Uint8Array(incCells.length) };
+  const chosen = sm2 ? sm2.chosen : decodeChosen(stabMap);
 
   if(!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY){
     return bad('Server not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing)', 503);
@@ -65,7 +71,7 @@ export async function onRequestPost(context){
     const { error } = await supabase.from('canvas_states').insert({
       short_id:id, theme, generation,
       parent_id:parentId||null, depth,
-      cell_data:cellData, stab_map:chosen ? stabMap : null,
+      cell_data:cellData, stab_map:(sm2 || chosen) ? stabMap : null,
       contributor_id:contributorId
     });
     if(error) throw error;
@@ -80,26 +86,27 @@ export async function onRequestPost(context){
           .select('generation,cell_data,contributor_count').eq('theme', theme).maybeSingle();
         if(mErr) throw mErr;
         if(!mother){
+          const first = mergeIntoMother({ mother:null, incoming });
           const { error:iErr } = await supabase.from('mother_display').insert({
-            theme, generation:1, cell_data:cellData, contributor_count:1 });
-          if(!iErr) merge = { ok:true, mode:'first', motherGeneration:1, released:0 };
+            theme, generation:1, cell_data:packMother(first), contributor_count:1 });
+          if(!iErr) merge = { ok:true, mode:'first', motherGeneration:1, contributorCount:1, released:0, ...first.stats };
           continue; // unique(theme) conflict → someone created it first; merge into theirs
         }
-        const motherCells = decodeCells(mother.cell_data);
+        const motherState = unpackMother(mother.cell_data);   // null if undecodable → treated as first
         const res = mergeIntoMother({
-          mother: motherCells, incoming, chosen,
-          continuation: motherCells !== null && baseGen !== null && baseGen === mother.generation,
-          release: PARAMS.release,
+          mother: motherState, incoming, chosen,
+          continuation: motherState !== null && baseGen !== null && baseGen === mother.generation,
+          release: PARAMS.release, releaseLoose: PARAMS.releaseLoose,
         });
         const nextGen = mother.generation + 1;
         const { data:upd, error:uErr } = await supabase.from('mother_display').update({
           contributor_count:(mother.contributor_count||0)+1,
           generation:nextGen,
-          cell_data:encodeCells(res.cells),
+          cell_data:packMother(res),
           updated_at:new Date().toISOString()
         }).eq('theme', theme).eq('generation', mother.generation).select('generation');
         if(uErr) throw uErr;
-        if(upd && upd.length) merge = { ok:true, mode:res.mode, motherGeneration:nextGen, released:res.stats.released, held:res.stats.held };
+        if(upd && upd.length) merge = { ok:true, mode:res.mode, motherGeneration:nextGen, contributorCount:(mother.contributor_count||0)+1, ...res.stats };
       }
     }catch(e){ merge = { ok:false, error:e.message }; }
 

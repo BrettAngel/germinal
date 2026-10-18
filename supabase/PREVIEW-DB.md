@@ -95,3 +95,19 @@ curl -s "https://www.germinal.studio/api/display-live?theme=love" | head -c 300;
   3. Supabase says "a few requests each day" is typically enough. Twice a week
      (the current cron) may be borderline; a daily cron (`'0 9 * * *'`) is safer.
 - Or just let it pause between test sessions and resume it when needed. It's test data.
+
+## Hold levels (tuned engine) — no schema change
+
+Hold levels (0–3) and the loose flag are stored without new columns:
+
+- `mother_display.cell_data` for `pb-*` rows = the normal 1,584,000-char cellData
+  + `:v2:` + a 396,000-char SM2 map (4 bits/cell: level | loose<<2). Rows without
+  the suffix decode as level 1 for held cells. `display-live` splits it and returns
+  `cellData` (unchanged format) + `stabMap`.
+- `canvas_states.stab_map` (existing column) holds the client's SM2 map
+  (adds bit 3 = chosen this session).
+
+Only this branch's `pb-*` rows use it; production rows are never read or written.
+Before any real merge to main, either keep this encoding (and make every reader
+split on `:v2:`) or add a `mother_display.stab_map` column (commented out in
+`preview-setup.sql`).
