@@ -167,7 +167,7 @@ function makePlan(opts={}){
   let ineligible=null;if(!eligible(form)){ineligible=form;form='heart';}   // (tests asking for e.g. a tree on love get the heart, and are told why)
   const S=G.formSize(form);
   const hue=hueCache[theme]!=null?hueCache[theme]:(hueCache[theme]=G.themeFamilyHue({theme,rgb:cellRGB,WT}));
-  const parts=G.resolveParts(form,pal,hue),multi=parts.length>1,labels=G.formLabels(form,S);
+  const parts=G.resolveParts(form,pal,hue,opts.partHues||null),multi=parts.length>1,labels=G.formLabels(form,S);
   const LB=multi?G.formLobes(form,S):null;
   const lobeMask=multi?LB.lobes.map((l,k)=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=LB.id[i]===k+1?1:0;return m;}):null;
   const partMask=parts.map(p=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=labels[i]===p.label?1:0;return m;});
@@ -223,7 +223,7 @@ function makePlan(opts={}){
       for(let j=0;j<c.loops;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r,centre:null});}
     strokes.push({kind:'evo',cycle:k,t0:c.loopEnd,t1:c.press,ease:RM?0:c.ease});
   });
-  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,ineligible,LB,lobeMask,
+  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,ineligible,LB,lobeMask,purity:opts.purity||0.4,
     partCells:parts.map(()=>new Set()),lobeCells:multi?LB.lobes.map(()=>new Set()):null,pickByPart:pks.map(p=>p.picks.length),pickBin:pk.hue,colour:pk.colour,zD,zC,zF,zP,fit:fv,tl,strokes,si:0,
     cyc:[],ptr:null,pressUntil:-1,tapAt:-1,taps:[],easeT:null,lit:[],frozen:false,genMs:[],lassosApplied:0,evolves:0,
     caps:G.COPY.dream.map((c,i)=>typeof c==='function'?c(form):(i===2&&multi?G.COPY.dreamMulti:c)),
@@ -301,7 +301,7 @@ function cycleTargets(k){
     LBs.forEach((l,q)=>{if(!cnt[q])return;const p=P.parts[l.part];
       const seed=held[q].length?held[q]:[(Y0+Math.round(l.cy))*WC+X0+Math.round(l.cx)];   // a lobe nobody has reached yet: from its middle
       const tq=D().chooseCycleTargets({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:seed,
-        WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.2,hue:p.hue,loopR:r,strict:true,room:P.roomOf(l.part),purity:0.4});
+        WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.2,hue:p.hue,loopR:r,strict:true,room:P.roomOf(l.part),purity:P.purity});
       tq.forEach(o=>{o.part=l.part;o.lobe=q;all.push(o);});});
     P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:all.map(o=>o.i),perLobe:cnt,targetRed:+(all.reduce((s,o)=>s+o.red,0)/Math.max(1,all.length)).toFixed(3),
       targetsInForm:all.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};

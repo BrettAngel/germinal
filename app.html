@@ -1556,17 +1556,30 @@ window.toggleReveal=function(){
 // GENERATION STEP
 // ═══════════════════════════════════════════════════════════════════
 const PALS={
-  love:['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#ffbbcc','#ffcc00','#ff8800','#aa1133','#660022'],
-  grief:['#1a1a2e','#2a2a40','#334455','#556677','#778899','#aabbcc','#e0e8f0'],
-  hope:['#ffee88','#ffcc00','#88ccff','#ffffff','#aaffaa','#ff8800'],
-  nature:['#1a5a08','#2a7a12','#338814','#55aa22','#aaccaa','#8b4513'],
-  joy:['#ff6600','#ff8800','#ffcc00','#ff4499','#66ccff','#88eeff'],
+  // PROTOTYPE (variant B) — DEVIATION FROM MAIN, Brett-approved 2026-10-18: every palette is
+  // full-spectrum (reds, pinks, oranges, yellow, greens, teal/cyan, blues, violet, magenta, brown),
+  // each keeping a lean (~35–40% of entries) toward its old character. ONLY this table and the
+  // free-text fallback below differ from main; pool weights, influence, stepGen, seedCanvas and
+  // genesis are main's, byte for byte (tests/variant.test.mjs). Main's table:
+  //   love:['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#ffbbcc','#ffcc00','#ff8800','#aa1133','#660022']
+  //   grief:['#1a1a2e','#2a2a40','#334455','#556677','#778899','#aabbcc','#e0e8f0']
+  //   hope:['#ffee88','#ffcc00','#88ccff','#ffffff','#aaffaa','#ff8800']
+  //   nature:['#1a5a08','#2a7a12','#338814','#55aa22','#aaccaa','#8b4513']
+  //   joy:['#ff6600','#ff8800','#ffcc00','#ff4499','#66ccff','#88eeff']
+  love:['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#aa1133','#ff8800','#ffcc00','#55aa22','#2a8a2a','#22bbaa','#33ccee','#3366ee','#8844dd','#dd33aa','#8b4513'],
+  grief:['#1a1a2e','#334455','#556677','#778899','#aabbcc','#e0e8f0','#994455','#aa6655','#aa8844','#889944','#558866','#448888','#445599','#775599','#995577'],
+  hope:['#ffee88','#ffcc00','#88ccff','#aaffaa','#ffffff','#ff6677','#ff88cc','#ff8800','#55cc55','#33bbaa','#4477ee','#9966ee','#dd55cc','#aa7744'],
+  nature:['#1a5a08','#338814','#55aa22','#aaccaa','#8b4513','#cc3322','#ee7799','#ee8822','#eecc33','#22aa88','#3399cc','#3355bb','#7744bb','#bb3388'],
+  joy:['#ff6600','#ff8800','#ffcc00','#ff4499','#66ccff','#ee2233','#aaee44','#55cc33','#22bb99','#3366ff','#9944ee','#dd33cc','#996633','#88eeff'],
 };
 function themePal(){
   const t=(document.getElementById('themeIn').value||'').toLowerCase();
   for(const[k,v] of Object.entries(PALS))if(t.includes(k))return v;
   let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))&0xffff;
-  return Array.from({length:8},(_,i)=>`hsl(${(h*3+i*32)%360},60%,${38+i*5}%)`);
+  // free-text themes (Brett-approved 2026-10-18, main: 8 hues from the hash, 32° apart): 5 near the
+  // theme's own hue (its lean) + 9 around the rest of the wheel, 36° apart
+  const b=(h*3)%360,lean=[0,-14,14,-28,28].map((d,i)=>`hsl(${(b+d+360)%360},62%,${42+i*5}%)`);
+  return lean.concat(Array.from({length:9},(_,i)=>`hsl(${(b+36*(i+1))%360},60%,${40+(i%4)*7}%)`));
 }
 function buildPool(){
   const tp=themePal(),pool=[];

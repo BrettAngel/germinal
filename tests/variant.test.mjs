@@ -17,23 +17,55 @@ function speckle(WC, WR, seed){ const r = mulberry32(seed), c = new Uint8Array(W
   return i => [c[i * 3], c[i * 3 + 1], c[i * 3 + 2]]; }
 const app = fs.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
 
-// ── the engine is origin/main's (Oct 18 engine audit) ──
-// The colour helpers, start canvas, palettes, recognition field, every
+// ── the engine is origin/main's (Oct 18 engine audit), except the palette table ──
+// The colour helpers, start canvas, recognition field, pool weights, every
 // generation step and the RGB555 save encoding, byte for byte. The only line
 // allowed in between is the glow rule's overlay reset at the top of stepGen
 // (pendingSel.clear(): what is highlighted, not what colour anything is).
+// The ONE deviation (Brett-approved 2026-10-18): the palette table (const PALS
+// … themePal, i.e. the theme palettes and the free-text fallback) is
+// full-spectrum. engineText(s, true) blanks that span so the rest is compared
+// with main; the table itself is pinned below.
 const SPANS = [['// ── Color helpers ──', '// ═══'], ['function seedCanvas(){', '// ── No paintSun()'], ['function initCells(){', '// ── Stats ──'],
   ['const PALS={', 'function buildPool(){'], ['function buildPool(){', 'function nextGen(){'], ['// ── Encode current canvas state for server ──', 'async function saveToServer(){']];
-function engineText(s){ return SPANS.map(([a, b]) => { const i = s.indexOf(a); assert.ok(i >= 0, 'missing ' + a); return s.slice(i, s.indexOf(b, i + a.length)); }).join('\n@@\n')
+const span = (s, a, b) => { const i = s.indexOf(a); assert.ok(i >= 0, 'missing ' + a); return s.slice(i, s.indexOf(b, i + a.length)); };
+function engineText(s, blankPalette = false){ return SPANS.map(([a, b]) => blankPalette && a === 'const PALS={' ? '<<palette table>>' : span(s, a, b)).join('\n@@\n')
   .replace(/^  pendingSel\.clear\(\);[^\n]*\n/m, '').replace('userOwnedCells=new Set();pendingSel.clear();\n', 'userOwnedCells=new Set();\n'); }
-const MAIN_ENGINE_SHA256 = '86f763594a31999d0cf165e54451d3f143547c565be58fce1cdb1b29aeb28487';   // engineText(origin/main b70c892 app.html)
-test('engine: colour helpers, start canvas, pool, recognition field, stepGen/stepGenFast and encoding are byte-identical to origin/main', () => {
-  assert.equal(crypto.createHash('sha256').update(engineText(app)).digest('hex'), MAIN_ENGINE_SHA256);
+const MAIN_ENGINE_SHA256 = '86f763594a31999d0cf165e54451d3f143547c565be58fce1cdb1b29aeb28487';          // engineText(origin/main b70c892 app.html)
+const MAIN_ENGINE_NOPAL_SHA256 = 'a530f17b1ba2892836146aaa03f739e9c40ebdb523c46f7946313c5c6ec41334';   // engineText(origin/main b70c892 app.html, true)
+const MAIN_PALETTE_SHA256 = '5cf58bac6b224b1450620676a25ec26e1b77db33d98427d3bcd75df24a2acded';      // span(origin/main app.html, 'const PALS={', 'function buildPool(){')
+const sha = t => crypto.createHash('sha256').update(t).digest('hex');
+test('engine: everything but the palette table (colour helpers, start canvas, pool weights, recognition field, stepGen/stepGenFast, encoding) is byte-identical to origin/main', () => {
+  assert.equal(sha(engineText(app, true)), MAIN_ENGINE_NOPAL_SHA256);
+  assert.notEqual(sha(span(app, 'const PALS={', 'function buildPool(){')), MAIN_PALETTE_SHA256, 'the palette table is the (approved) deviation');
+  assert.notEqual(sha(engineText(app)), MAIN_ENGINE_SHA256);
+});
+// the approved full-spectrum palettes (Brett, 2026-10-18)
+const NEW_PALS = {
+  love: ['#cc0033', '#dd1144', '#ff3366', '#ff6688', '#ff99aa', '#aa1133', '#ff8800', '#ffcc00', '#55aa22', '#2a8a2a', '#22bbaa', '#33ccee', '#3366ee', '#8844dd', '#dd33aa', '#8b4513'],
+  grief: ['#1a1a2e', '#334455', '#556677', '#778899', '#aabbcc', '#e0e8f0', '#994455', '#aa6655', '#aa8844', '#889944', '#558866', '#448888', '#445599', '#775599', '#995577'],
+  hope: ['#ffee88', '#ffcc00', '#88ccff', '#aaffaa', '#ffffff', '#ff6677', '#ff88cc', '#ff8800', '#55cc55', '#33bbaa', '#4477ee', '#9966ee', '#dd55cc', '#aa7744'],
+  nature: ['#1a5a08', '#338814', '#55aa22', '#aaccaa', '#8b4513', '#cc3322', '#ee7799', '#ee8822', '#eecc33', '#22aa88', '#3399cc', '#3355bb', '#7744bb', '#bb3388'],
+  joy: ['#ff6600', '#ff8800', '#ffcc00', '#ff4499', '#66ccff', '#ee2233', '#aaee44', '#55cc33', '#22bb99', '#3366ff', '#9944ee', '#dd33cc', '#996633', '#88eeff'] };
+test('palette table: the approved full-spectrum palettes, 12–16 colours each, every 60° sector of the wheel, a 35–45% lean; documented', () => {
+  const tab = span(app, 'const PALS={', 'function buildPool(){');
+  for(const [k, v] of Object.entries(NEW_PALS)){
+    assert.ok(tab.includes(`  ${k}:${JSON.stringify(v).replace(/"/g, "'")},`), k + ' is the approved palette');
+    assert.ok(v.length >= 12 && v.length <= 16, k + ' size ' + v.length);
+    const hs = D.paletteHues(v).filter(c => c.s >= 0.35);
+    for(let sec = 0; sec < 6; sec++) assert.ok(hs.some(c => Math.floor(((c.h + 30) % 360) / 60) === sec), `${k}: a hue in sector ${sec * 60}°±30`);
+  }
+  const reds = NEW_PALS.love.filter(c => { const [h] = D.paletteHues([c]); return h.s > 0.3 && (h.h >= 330 || h.h < 10); }).length;
+  assert.ok(reds / NEW_PALS.love.length >= 0.35 && reds / NEW_PALS.love.length <= 0.45, 'love leans red/pink: ' + reds + '/' + NEW_PALS.love.length);
+  assert.match(tab, /DEVIATION FROM MAIN, Brett-approved 2026-10-18/);
+  assert.match(tab, /love:\['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#ffbbcc','#ffcc00','#ff8800','#aa1133','#660022'\]/, "main's table quoted in the comment");
+  assert.match(tab, /Array\.from\(\{length:9\}/, 'free-text fallback: 5 near its own hue + 9 around the wheel');
 });
 // ── palette and theme selection are origin/main's (Oct 18 palette check) ──
 // The default theme (input value "love"), normTheme, the ?theme= override and the
-// genesis bots' palettes, byte for byte; PALS/themePal and the full-spectrum
-// substrate, void sparks and cascade RAINBOW are inside the engine spans above.
+// genesis bots' palette construction, byte for byte (the palettes they draw from
+// are the approved full-spectrum table; seedCanvas, void sparks and the cascade
+// RAINBOW are in the engine spans above).
 const THEME_SPANS = [['<input id="themeIn"', '/>', 2], ['function normTheme(raw){', "return t||'love';\n}", 0], ["if(QS.get('theme')){", '\n', 0],
   ['function buildComplementaryPalettes(n){', '// ── Organic bot lasso ──', 0]];
 function themeText(s){ return THEME_SPANS.map(([a, b, k]) => { const i = s.indexOf(a); assert.ok(i >= 0, 'missing ' + a); const j = s.indexOf(b, i + a.length); return s.slice(i, j + (k || (b.startsWith('return') ? b.length : 0))); }).join('\n@@\n'); }
@@ -276,41 +308,41 @@ test('dream eye: a wide, flat almond with an open pupil that the selection keeps
       assert.ok(d - 1.25 * o.r - 0.5 >= h.r, `loop around ${o.i} (r ${o.r.toFixed(2)}, ${d.toFixed(1)} from the pupil) clears it`); }
   }
 });
-// main's palettes (app.html PALS), for the palette-honesty tests below
-const PAL = { love: ['#cc0033', '#dd1144', '#ff3366', '#ff6688', '#ff99aa', '#ffbbcc', '#ffcc00', '#ff8800', '#aa1133', '#660022'],
-  grief: ['#1a1a2e', '#2a2a40', '#334455', '#556677', '#778899', '#aabbcc', '#e0e8f0'], hope: ['#ffee88', '#ffcc00', '#88ccff', '#ffffff', '#aaffaa', '#ff8800'],
-  nature: ['#1a5a08', '#2a7a12', '#338814', '#55aa22', '#aaccaa', '#8b4513'], joy: ['#ff6600', '#ff8800', '#ffcc00', '#ff4499', '#66ccff', '#88eeff'] };
+// the palettes the app uses now (app.html PALS), for the palette-honesty tests below
+const PAL = NEW_PALS;
 test('PAL above is app.html PALS, byte for byte', () => {
   for(const [k, v] of Object.entries(PAL)) assert.ok(app.includes(`  ${k}:${JSON.stringify(v).replace(/"/g, "'")},`), k);
 });
-test('dream forms rotate: heart first for love, then flower → leaf → wave (tree, sun, fish, eye drawable but out); all sized alike', () => {
+test('dream forms rotate: heart first for love, then flower → leaf (tree, sun, fish, wave, eye drawable but out, re-checked on full-spectrum love); all sized alike', () => {
   const el = t => f => D.formEligible(f, PAL[t]);
   assert.equal(D.nextForm({ theme: 'love', eligible: el('love') }), 'heart', 'first visit on love: a heart');
   assert.equal(D.nextForm({ theme: 'Love' }), 'heart');
   const seq = []; let last = null; for(let k = 0; k < 8; k++){ last = D.nextForm({ last, theme: 'love', eligible: el('love') }); seq.push(last); }
-  assert.deepEqual(seq, ['heart', 'flower', 'leaf', 'wave', 'heart', 'flower', 'leaf', 'wave'], 'love: the flower right after the heart; no tree (no green/brown in love)');
+  assert.deepEqual(seq, ['heart', 'flower', 'leaf', 'heart', 'flower', 'leaf', 'heart', 'flower'], 'love: the flower right after the heart');
   assert.equal(D.nextForm({ last: 'eye', theme: 'love', eligible: el('love') }), 'heart', 'an old eye in storage moves on');
   assert.equal(D.nextForm({ last: 'sun', theme: 'love', eligible: el('love') }), 'heart', 'so does an old sun');
-  assert.deepEqual(D.ROTATION, ['heart', 'flower', 'leaf', 'wave']);
-  for(const f of ['eye', 'sun', 'fish', 'tree']) assert.ok(D.FORMS.includes(f) && !D.ROTATION.includes(f), f + ' drawable, out of the rotation');
-  assert.equal(D.nextForm({ theme: 'joy', eligible: el('joy') }), 'flower', 'another theme with the hues: its first multi-colour form');
-  assert.ok(['heart', 'leaf', 'wave'].includes(D.nextForm({ theme: 'nature', eligible: el('nature') })), 'nature has no yellow + pink: no flower');
-  const nat = []; last = 'heart'; for(let k = 0; k < 3; k++){ last = D.nextForm({ last, theme: 'nature', eligible: el('nature') }); nat.push(last); }
-  assert.deepEqual(nat, ['leaf', 'wave', 'heart'], 'nature skips the flower');
+  assert.deepEqual(D.ROTATION, ['heart', 'flower', 'leaf']);
+  for(const f of ['eye', 'sun', 'fish', 'tree', 'wave']) assert.ok(D.FORMS.includes(f) && !D.ROTATION.includes(f), f + ' drawable, out of the rotation');
+  for(const t of ['joy', 'nature', 'hope', 'grief']) assert.equal(D.nextForm({ theme: t, eligible: el(t) }), 'flower', t + ': its first multi-colour form');
+  const noFl = []; last = 'heart'; for(let k = 0; k < 3; k++){ last = D.nextForm({ last, theme: 'love', eligible: f => f !== 'flower' }); noFl.push(last); }
+  assert.deepEqual(noFl, ['leaf', 'heart', 'leaf'], 'a theme without the flower hues skips it');
   assert.ok(D.ROTATION.includes(D.nextForm({ theme: 'sea' })));
   const n = f => { let c = 0; for(const v of D.formMask(f, D.formSize(f))) c += v; return c; };
   for(const f of D.FORMS) assert.ok(Math.abs(n(f) - n('heart')) / n('heart') < (D.FORM_PARTS[f] ? 0.08 : 0.06), `${f} has about as many cells as the heart: ${n(f)} vs ${n('heart')}`);
 });
 test('palette honesty: a multi-colour form is offered only when the theme palette has every part hue', () => {
   const H = (t, f) => { const p = D.resolveParts(f, PAL[t]); return p && p.map(x => x.hue); };
+  // full-spectrum palettes (2026-10-18): every theme has every part hue
   assert.deepEqual(H('love', 'flower'), [48, 345], 'love flower: yellow #ffcc00 centre, pink/red petals');
   assert.deepEqual(H('love', 'sun'), [48, 355]);
-  assert.equal(H('love', 'tree'), null, 'love has no green or brown'); assert.equal(H('love', 'fish'), null, 'love has no blue');
-  assert.deepEqual(H('nature', 'tree'), [25, 105], 'nature: brown #8b4513 trunk, green crown');
-  assert.equal(H('nature', 'flower'), null); assert.deepEqual(H('joy', 'fish'), [200, 28]); assert.deepEqual(H('hope', 'flower'), [48, 200]);
-  for(const f of ['flower', 'sun', 'tree', 'fish']) assert.equal(H('grief', f), null, 'grief (greys/blue-greys): no multi-colour form');
+  assert.deepEqual(H('love', 'tree'), [25, 105], 'love now has brown #8b4513 and leaf green #55aa22'); assert.deepEqual(H('love', 'fish'), [200, 28], 'and cyan/blue');
+  for(const t of Object.keys(PAL)) for(const f of ['flower', 'sun', 'tree', 'fish']) assert.ok(H(t, f), t + ' ' + f);
+  // the honesty rule itself: main's old love palette (reds + yellow/orange) still gets no tree or fish
+  const OLD_LOVE = ['#cc0033', '#dd1144', '#ff3366', '#ff6688', '#ff99aa', '#ffbbcc', '#ffcc00', '#ff8800', '#aa1133', '#660022'];
+  assert.equal(D.resolveParts('tree', OLD_LOVE), null); assert.equal(D.resolveParts('fish', OLD_LOVE), null); assert.deepEqual(D.resolveParts('flower', OLD_LOVE).map(p => p.hue), [48, 345]);
+  assert.equal(D.resolveParts('tree', ['#1a1a2e', '#2a2a40', '#334455', '#556677', '#778899', '#aabbcc', '#e0e8f0']), null, "main's grey grief: no tree");
   assert.ok(D.paletteHas(['hsl(200,60%,48%)'], 200) && !D.paletteHas(['hsl(200,60%,48%)'], 48), 'hash palettes (hsl) are read too');
-  for(const t of Object.keys(PAL)) for(const h of [0, 48, 105, 200]) if(D.paletteHas(PAL[t], h))
+  for(const t of Object.keys(PAL)) for(const h of [0, 48, 105, 200, 270]) if(D.paletteHas(PAL[t], h))
     assert.ok(D.paletteHues(PAL[t]).some(c => Math.min(Math.abs(c.h - h), 360 - Math.abs(c.h - h)) <= 25 && c.s >= 0.35), 'only real palette hues');
 });
 test('multi-colour forms: two parts, separate lobes (6 petals around the centre), timeline picks one colour then the other', () => {
