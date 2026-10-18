@@ -406,90 +406,87 @@ test('dream form masks are filled silhouettes (binary, no outline-only shapes)',
     assert.ok(interior / inside > 0.85, f + ' is filled: interior share ' + (interior / inside).toFixed(2));
   }
 });
-test('dream growth: world-grid blocks 16→8→4→2→1, sampled canvas colours, picks always held', () => {
-  assert.deepEqual(D.GROW_LEVELS, [16, 8, 4, 2, 1]);
-  const S = 340, X0 = 283, Y0 = 117, rand = H.mulberry32(9);
-  const pal0 = [[200, 40, 60], [220, 120, 40], [150, 30, 110]];
-  const orig = new Uint8Array(S * S * 3);
-  for(let i = 0; i < S * S; i++){ const p = pal0[(rand() * 3) | 0], k = 0.25 + rand() * 0.35;
-    orig[i * 3] = Math.round(p[0] * k); orig[i * 3 + 1] = Math.round(p[1] * k); orig[i * 3 + 2] = Math.round(p[2] * k); }
-  const canvasColours = new Set(); for(let i = 0; i < S * S; i++) canvasColours.add(orig[i * 3] + ',' + orig[i * 3 + 1] + ',' + orig[i * 3 + 2]);
-  const colour = [orig[0], orig[1], orig[2]];
-  const pal = D.familyPalette(orig, S, colour);
-  assert.ok(pal.length >= 8);
-  for(const c of pal){ assert.ok(canvasColours.has(c.join(',')), 'palette colour comes from a real cell');
-    assert.equal(D.hueBin(...c), D.hueBin(...colour), 'one colour family'); }
-  const mask = D.formMask('heart', S), picks = [5 * S + 7, 300 * S + 333];
-  let prevErr = Infinity, prevBlocks = 0;
-  for(const b of D.GROW_LEVELS){
-    const on = D.blockForm(mask, S, X0, Y0, b, { picks });
-    for(const p of picks) assert.equal(on[p], 1, 'picks always hold');
-    // every block of the world grid is uniformly on/off (except the forced picks)
-    const blocks = new Map(); let err = 0;
-    for(let y = 0; y < S; y++) for(let x = 0; x < S; x++){ const li = y * S + x; if(picks.includes(li)) continue;
-      const key = Math.floor((X0 + x) / b) + ':' + Math.floor((Y0 + y) / b);
-      if(!blocks.has(key)) blocks.set(key, on[li]); else assert.equal(blocks.get(key), on[li], 'block ' + key + ' uniform at ' + b);
-      if(on[li] !== mask[li]) err++;
-      if(on[li]){ const gx = X0 + x, gy = Y0 + y; const c = D.blockColour(pal, gx - gx % b, gy - gy % b);
-        if(x % 37 === 0 && y % 41 === 0) assert.ok(canvasColours.has(c.join(',')), 'block colour is a canvas colour'); } }
-    const onBlocks = [...blocks.values()].filter(Boolean).length;
-    assert.ok(err <= prevErr, `detail improves at ${b}: ${err} vs ${prevErr}`);
-    assert.ok(onBlocks > prevBlocks, 'more, finer blocks at ' + b);
-    prevErr = err; prevBlocks = onBlocks;
-  }
-  assert.equal(prevErr, 0, 'at 1 cell the form is exact');
-  // refinement keeps colour: a sub-block sharing its parent's origin keeps the parent's colour
-  assert.deepEqual(D.blockColour(pal, 288, 128), D.blockColour(pal, 288, 128));
-});
-
-test('dream growth: every refinement is more defined — saturation and contrast vs the canvas rise 16→1 (real warm speckle)', () => {
-  const c = H.hintCanvas('love', 'noise'), S = 340, L = D.GROW_LEVELS;
-  for(const [form, X0, Y0] of [['heart', 280, 160], ['leaf', 40, 30], ['eye', 500, 300], ['wave', 200, 250]]){
-    const orig = new Uint8Array(S * S * 3);
-    for(let y = 0; y < S; y++) for(let x = 0; x < S; x++){ const i = (Y0 + y) * 900 + X0 + x, k = (y * S + x) * 3; orig[k] = c.R[i]; orig[k + 1] = c.G[i]; orig[k + 2] = c.B[i]; }
-    const fams = new Map(); for(let i = 0; i < S * S; i++){ const h = D.hueBin(orig[i * 3], orig[i * 3 + 1], orig[i * 3 + 2]); if(h >= 0 && !fams.has(h)) fams.set(h, [orig[i * 3], orig[i * 3 + 1], orig[i * 3 + 2]]); }
-    assert.ok(fams.size >= 2);
-    for(const col of fams.values()){
-    const pal = D.familyPalette(orig, S, col), mask = D.formMask(form, S);
-    const rows = L.map((b, k) => { const on = D.blockForm(mask, S, X0, Y0, b, { jitter: b <= 2 ? 4 - b : 0, scatter: b <= 2 ? { R: b === 1 ? 6 : 4, pOut: 0.3, pIn: 0.2 } : null }), fl = v => v - ((v % b) + b) % b;
-      return D.formContrast(on, i => D.levelColour(pal, fl(X0 + i % S), fl(Y0 + ((i / S) | 0)), k, L.length), orig, S); });
-    for(let k = 1; k < rows.length; k++){
-      assert.ok(rows[k].satIn > rows[k - 1].satIn, `${form} saturation rises at ${L[k]}: ${rows[k - 1].satIn} → ${rows[k].satIn}`);
-      assert.ok(rows[k].contrast > rows[k - 1].contrast, `${form} brightness contrast rises at ${L[k]}`);
-      assert.ok(rows[k].lumContrast > rows[k - 1].lumContrast, `${form} luminance contrast rises at ${L[k]}`);
-    }
-    assert.ok(rows[0].contrast > 1 && rows[4].satIn > rows[4].satOut, form + ' the form stands out');
-    // capped: the final level is vivid but never a flat pure colour
-    assert.ok(rows[4].satIn >= 0.88 && rows[4].satIn <= 0.95, form + ' final saturation capped ~0.92: ' + rows[4].satIn);
-    // hue and brightness jitter per cell at the final level: pixels stay readable
-    { const hs = [], vs2 = []; for(let x = 0; x < 300; x++){ const [r, g, b] = D.levelColour(pal, X0 + x, Y0 + 11, 4, 5);
-        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; let h = d ? (mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60 : 0; if(h < 0) h += 360; hs.push(h); vs2.push(mx); }
-      const sd = a => { const m = a.reduce((p, q) => p + q, 0) / a.length; return Math.sqrt(a.reduce((p, q) => p + (q - m) * (q - m), 0) / a.length); };
-      const hm = hs.map(h => h > 180 ? h - 360 : h);
-      assert.ok(sd(hm) > 1.5 && sd(hm) < 8, form + ' hue jitter of a few degrees: sd ' + sd(hm).toFixed(2));
-      assert.ok(sd(vs2) > 10, form + ' brightness jitter: sd ' + sd(vs2).toFixed(1)); }
-    // alive, not flat: the 1-cell level keeps per-cell variation
-    const vs = new Set(); for(let x = 0; x < 200; x++){ const v = D.levelColour(pal, X0 + x, Y0 + 7, 4, 5); vs.add(Math.max(...v)); }
-    assert.ok(vs.size > 10, form + ' per-cell variation ' + vs.size);
-    }
+// ── Dream it: real selection + real Evolve, sped up (no mask reveal) ──
+test('dream timeline: 4–6 select+Evolve cycles, each faster than the last; ~12–15 s; reduced motion ~7 s', () => {
+  for(const rm of [false, true]){
+    const T = D.dreamTimeline(rm), d = T.cycles.map(c => c.dur);
+    assert.ok(d.length >= 4 && d.length <= 6, 'cycles ' + d.length);
+    for(let k = 1; k < d.length; k++) assert.ok(d[k] < d[k - 1], `cycle ${k} faster: ${d[k - 1]} → ${d[k]}`);
+    for(const c of T.cycles){ assert.ok(c.loops >= 2, 'a few lassos each cycle');
+      assert.ok(c.t0 < c.loopEnd && c.loopEnd <= c.press && c.press <= c.t1, 'lassos, then Evolve, inside the cycle'); }
+    for(let k = 1; k < T.cycles.length; k++) assert.ok(Math.abs(T.cycles[k].t0 - T.cycles[k - 1].t1) < 1e-9, 'back to back');
+    assert.ok(T.cycles[0].t0 >= T.pick[1] - 1e-9 && T.zout[0] >= T.cycles.at(-1).t1 - 1e-9 && T.fade[1] === T.end, 'order: picks → cycles → step back → fade');
+    if(rm) assert.ok(T.end >= 5 && T.end <= 8, 'reduced ' + T.end);
+    else { assert.ok(T.end >= 12 && T.end <= 15, 'normal ' + T.end); assert.equal(T.zin[1], 2.2, 'opening zoom unchanged');
+      assert.deepEqual(T.pick, [2.2, 4.8].map((v, i) => T.pick[i]), 'first lassos right after the zoom'); assert.ok(Math.abs(T.pick[1] - 4.8) < 1e-9); }
   }
 });
-test('dream growth: the fine edge is dithered per cell, not a smooth silhouette', () => {
-  const S = 200, mask = D.formMask('heart', S);
-  const exact = D.blockForm(mask, S, 10, 10, 1), dith = D.blockForm(mask, S, 10, 10, 1, { jitter: 2 });
-  let diff = 0, onN = 0; for(let i = 0; i < S * S; i++){ if(exact[i] !== dith[i]) diff++; if(exact[i]) onN++; }
-  assert.ok(diff > 50, 'boundary cells differ: ' + diff);
-  assert.ok(diff / onN < 0.08, 'but only at the edge: ' + (diff / onN).toFixed(3));
+test('dream picks prefer red-ish pixels when the spot has them', () => {
+  const W = 40, rgb = i => (i % 7 === 0 ? [170, 40, 50] : [40, 150, 60]);   // mostly green, some red
+  const plain = D.pickScattered({ rgb, WC: W, x0: 0, y0: 0, w: 30, h: 30, maxPicks: 4 });
+  const red = D.pickScattered({ rgb, WC: W, x0: 0, y0: 0, w: 30, h: 30, maxPicks: 4, prefer: D.RED_BINS });
+  assert.notEqual(D.hueBin(...rgb(plain.picks[0])), D.hueBin(170, 40, 50), 'without a preference: the commonest colour');
+  for(const p of red.picks) assert.ok(D.redness(...rgb(p)) > 0.5, 'with RED_BINS: red pixels');
+  assert.ok(D.redness(200, 30, 40) > 0.7 && D.redness(40, 200, 60) === 0 && D.redness(12, 4, 4) === 0 && D.redness(120, 120, 124) === 0);
 });
-
-test('dream growth: the fast colour path matches levelColour; the fine edge is ragged both ways', () => {
-  const pal = []; for(let i = 0; i < 300; i++) pal.push([90 + i % 140, 12 + i % 40, 25 + i % 50]);
-  for(let k = 0; k < 5; k++){ const tb = D.levelTable(pal, k, 5), o = [0, 0, 0];
-    for(let x = 0; x < 2000; x++){ const a = D.levelColour(pal, x * 7, x * 13, k, 5), b = D.levelColourFast(tb, x * 7, x * 13, o);
-      for(let j = 0; j < 3; j++) assert.ok(Math.abs(a[j] - b[j]) <= 1, 'fast = reference'); } }
-  const S = 200, mask = D.formMask('heart', S);
-  const base = D.blockForm(mask, S, 10, 10, 1), sc = D.blockForm(mask, S, 10, 10, 1, { scatter: { R: 6, pOut: 0.3, pIn: 0.2 } });
-  let out = 0, inn = 0; for(let i = 0; i < S * S; i++){ if(!base[i] && sc[i]) out++; if(base[i] && !sc[i]) inn++; }
-  assert.ok(out > 40 && inn > 30, `form cells outside ${out}, speckle cells inside ${inn}`);
-  for(let i = 0; i < S * S; i++) assert.ok(sc[i] === 0 || sc[i] === 1, 'cells only: on or off, never blended');
+// a synthetic dark canvas with red-ish, warm and cool speckle (like the noise hint)
+function speckle(WC, WR, seed){ const r = H.mulberry32(seed), c = new Uint8Array(WC * WR * 3);
+  for(let i = 0; i < WC * WR; i++){ const k = r(), v = 40 + r() * 140;
+    const col = k < 0.35 ? [v, v * 0.18, v * 0.25] : k < 0.55 ? [v, v * 0.5, v * 0.2] : k < 0.8 ? [v * 0.2, v * 0.4, v] : [v * 0.15, v * 0.15, v * 0.2];
+    c[i * 3] = col[0]; c[i * 3 + 1] = col[1]; c[i * 3 + 2] = col[2]; }
+  return i => [c[i * 3], c[i * 3 + 1], c[i * 3 + 2]]; }
+// hold the cells inside a loop (as applyLasso does: cell centres in the polygon)
+function holdLoop(pts, WC, held){ const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  for(let y = Math.floor(Math.min(...ys)); y <= Math.ceil(Math.max(...ys)); y++) for(let x = Math.floor(Math.min(...xs)); x <= Math.ceil(Math.max(...xs)); x++){
+    let inside = false; const px = x + 0.5, py = y + 0.5;
+    for(let i = 0, j = pts.length - 1; i < pts.length; j = i++){ const a = pts[i], b = pts[j];
+      if(((a.y > py) !== (b.y > py)) && (px < (b.x - a.x) * (py - a.y) / (b.y - a.y) + a.x)) inside = !inside; }
+    if(inside) held.add(y * WC + x); } }
+test('dream selection: real unheld cells next to the held cluster, red-ish, softly biased toward the form — and imperfect', () => {
+  const WC = 200, WR = 160, rgb = speckle(WC, WR, 3), S = 44, fx = 100, fy = 80, mask = D.formMask('heart', S);
+  const held = new Set([fy * WC + fx, fy * WC + fx + 3, (fy + 3) * WC + fx]);
+  const cluster = [...held];
+  let outside = 0, inForm = 0, n = 0, redSum = 0, all = 0;
+  for(let seed = 1; seed <= 40; seed++){
+    const tg = D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster, WC, WR, mask, S, fx, fy, ring: 3, count: 3, rand: H.mulberry32(seed) });
+    assert.ok(tg.length === 3, 'three targets');
+    for(const o of tg){ n++; assert.ok(!held.has(o.i), 'never an already-held cell');
+      const d = Math.min(...cluster.map(c => Math.max(Math.abs(c % WC - o.i % WC), Math.abs(((c / WC) | 0) - ((o.i / WC) | 0)))));
+      assert.ok(d >= 1 && d <= 3, 'adjacent to the cluster (≤ 3 cells): ' + d);
+      redSum += D.redness(...rgb(o.i)); if(o.inForm) inForm++; else outside++; }
+    for(let i = 0; i < 400; i++){ const x = fx - 3 + (i % 20) * 0.3 | 0, y = fy - 3 + ((i / 20) | 0) * 0.3 | 0; all += D.redness(...rgb(y * WC + x)); }
+  }
+  assert.ok(redSum / n > 2 * all / (40 * 400), `picked cells are red-ish: ${(redSum / n).toFixed(2)} vs local mean ${(all / 16000).toFixed(2)}`);
+  assert.ok(new Set(Array.from({ length: 5 }, (_, s) => D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster, WC, WR, mask, S, fx, fy, rand: H.mulberry32(s + 1) }).map(o => o.i).join())).size > 1, 'noise: not the same cells every time');
+});
+test('dream cluster grows across cycles: outward, mostly into the form, rough (gaps and strays)', () => {
+  const WC = 220, WR = 180, rgb = speckle(WC, WR, 11), S = 44, fx = 110, fy = 90, mask = D.formMask('heart', S), rand = H.mulberry32(4);
+  const T = D.dreamTimeline(false), held = new Set();
+  for(const p of [fy * WC + fx, fy * WC + fx + 4, (fy + 3) * WC + fx - 2, (fy - 3) * WC + fx + 2]) holdLoop(D.loopPoints(p % WC, (p / WC) | 0, 1.35, rand), WC, held);
+  const X0 = fx - (S >> 1), Y0 = fy - (S >> 1), inF = i => { const x = i % WC - X0, y = ((i / WC) | 0) - Y0; return x >= 0 && y >= 0 && x < S && y < S && mask[y * S + x]; };
+  let formN = 0; for(const v of mask) formN += v;
+  const sizes = [held.size], cover = [], spread = [];
+  T.cycles.forEach((c, k) => {
+    const u = k / (T.cycles.length - 1), r = Math.max(1.4, (26 + 16 * u) / (9 * Math.pow(0.45, u) * 2));
+    const tg = D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster: [...held], WC, WR, mask, S, fx, fy, ring: Math.max(2, Math.round(r * 0.9)), count: c.loops, minSep: Math.max(3, Math.round(r * 1.3)), bias: 1 + k * 0.25, fill: 1, rand });
+    for(const o of tg) holdLoop(D.loopPoints(o.i % WC, (o.i / WC) | 0, r, rand), WC, held);
+    sizes.push(held.size); let f = 0, mx = 0; for(const i of held){ if(inF(i)) f++; mx = Math.max(mx, Math.hypot(i % WC - fx, ((i / WC) | 0) - fy)); }
+    cover.push(f / formN); spread.push(mx);
+  });
+  for(let k = 1; k < sizes.length; k++) assert.ok(sizes[k] > sizes[k - 1], `grows every cycle: ${sizes.join(' → ')}`);
+  for(let k = 1; k < spread.length; k++) assert.ok(spread[k] >= spread[k - 1], 'outward');
+  let inside = 0; for(const i of held) if(inF(i)) inside++;
+  assert.ok(inside / held.size > 0.6, 'mostly inside the form: ' + (inside / held.size).toFixed(2));
+  assert.ok(inside / held.size < 0.995 && cover.at(-1) < 0.9, `rough, not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
+  assert.ok(cover.at(-1) > 0.2, 'but enough to read as one: cover ' + cover.at(-1).toFixed(2));
+  assert.ok(held.size / (900 * 660) < 0.08, 'far under the 8% cap');
+});
+test('dream uses the real mechanics: applyLasso + nextGen, no stored image or mask reveal', async () => {
+  const fs = await import('node:fs');
+  for(const gone of ['GROW_LEVELS', 'blockForm', 'jitterMask', 'scatterEdge', 'familyPalette', 'levelColour', 'levelTable', 'levelColourFast', 'blockColour', 'formContrast', 'vividness'])
+    assert.equal(D[gone], undefined, gone + ' removed');
+  const ui = fs.readFileSync(new URL('../dream-ui.js', import.meta.url), 'utf8');
+  assert.match(ui, /applyLasso\(false\)/, 'real lassos'); assert.match(ui, /nextGen\(\)/, 'real Evolve');
+  assert.doesNotMatch(ui, /putImageData|createImageData|formMask\([^)]*\)[^;]*fill/, 'never paints an image of the form');
+  assert.doesNotMatch(ui, /saveToServer|fetch\(/, 'nothing saved to the server');
 });
