@@ -174,10 +174,15 @@ function makePlan(opts={}){
   // the eye's pupil stays open: no lasso ever reaches it (formHole), loops near it shrink
   const tune=G.formTuning(form),hb=G.formHole(form,S),hole=hb?{cx:hb.cx,cy:hb.cy,r:hb.r}:null;
   const HX=reg.fx-(S>>1)+(hole?hole.cx:0),HY=reg.fy-(S>>1)+(hole?hole.cy:0);
-  const pickR=1.35,exclude=hole?(i=>Math.hypot(i%WC+.5-HX,((i/WC)|0)+.5-HY)<hole.r+1.25*pickR+0.75):null;
+  // pointer choice only (no colour is changed): the first picks are clearly theme-coloured pixels
+  // (red for love) when the spot has them, never near-black ones; the engine then does the rest
+  const pickR=1.35,nearHole=hole?(i=>Math.hypot(i%WC+.5-HX,((i/WC)|0)+.5-HY)<hole.r+1.25*pickR+0.75):null;
+  const vivid=i=>G.familyScore(...cellRGB(i),hue)>=0.3;
+  const exclude=i=>(nearHole&&nearHole(i))||!vivid(i);
   const pk={picks:[],hue:-1,colour:[0,0,0]};
   for(const q of tune.starts){const sx=Math.round(reg.fx+q.dx*S),sy=Math.round(reg.fy+q.dy*S);
-    const qw=q.win||ww,qh=q.win||wh,pq=G.pickScattered({rgb:cellRGB,WC,x0:sx-(qw>>1),y0:sy-(qh>>1)+(q.win?0:2),w:qw,h:qh,maxPicks:q.n,minGap:3,prefer:G.binsNear(hue),exclude});
+    const qw=q.win||ww,qh=q.win||wh,pa={rgb:cellRGB,WC,x0:sx-(qw>>1),y0:sy-(qh>>1)+(q.win?0:2),w:qw,h:qh,maxPicks:q.n,minGap:3,prefer:G.binsNear(hue)};
+    let pq=G.pickScattered({...pa,exclude});if(!pq.picks.length)pq=G.pickScattered({...pa,exclude:nearHole});   // no vivid pixel at the spot: as before
     pk.picks.push(...pq.picks);if(pk.hue<0){pk.hue=pq.hue;pk.colour=pq.colour;}}
   const tl=G.dreamTimeline(RM,Math.max(1,pk.picks.length));
   // strokes: every lasso and every Evolve tap, in order, with its time slot. Cycle 0 = the first
@@ -210,7 +215,7 @@ const ph=(t,[a,b])=>b<=a?(t>=a?1:0):Math.min(1,Math.max(0,(t-a)/(b-a)));
 let S0=null;
 function snapshotState(){
   const G=D(),fill=document.getElementById('affinFill'),ap=document.getElementById('affinPts');
-  S0={cells:G.snapshotCells(cells),sum:G.checksumCells(cells),generation,owned:new Set(userOwnedCells),chosen:new Set(chosenCells),pend:new Set(pendingSel),
+  S0={cells:G.snapshotCells(cells),sum:G.checksumCells(cells),generation,owned:new Set(userOwnedCells),pend:new Set(pendingSel),
     aff:affinityPerCell.slice(),score:userScore,log:generationLog.slice(),hist:historyLayers.length,arch:archive.length,recog:recogField.slice(),
     tool,fillBg:fill?fill.style.background:'',apColor:ap?ap.style.color:'',done:false};
 }
@@ -219,7 +224,6 @@ function restoreState(){
   const G=D();
   G.restoreCells(cells,S0.cells);
   generation=S0.generation;userOwnedCells=new Set(S0.owned);
-  chosenCells.clear();for(const i of S0.chosen)chosenCells.add(i);
   pendingSel.clear();for(const i of S0.pend)pendingSel.add(i);
   affinityPerCell=S0.aff.slice();userScore=S0.score;generationLog=S0.log.slice();
   historyLayers.length=S0.hist;archive.length=S0.arch;recogField=S0.recog.slice();
@@ -234,7 +238,7 @@ function stateMatches(){
   if(!S0)return null;
   let aff=affinityPerCell.length===S0.aff.length;for(let i=0;aff&&i<S0.aff.length;i++)if(affinityPerCell[i]!==S0.aff[i])aff=false;
   const setEq=(a,b)=>{if(a.size!==b.size)return false;for(const x of a)if(!b.has(x))return false;return true;};
-  return{cells:D().checksumCells(cells)===S0.sum,generation:generation===S0.generation,owned:setEq(userOwnedCells,S0.owned),chosen:setEq(chosenCells,S0.chosen),pending:setEq(pendingSel,S0.pend),
+  return{cells:D().checksumCells(cells)===S0.sum,generation:generation===S0.generation,owned:setEq(userOwnedCells,S0.owned),pending:setEq(pendingSel,S0.pend),
     affinity:aff,score:userScore===S0.score,log:generationLog.length===S0.log.length,history:historyLayers.length===S0.hist,archive:archive.length===S0.arch,
     hudGen:document.getElementById('hudG').textContent===S0.generation.toLocaleString()};
 }
@@ -298,7 +302,7 @@ function applyStroke(s){   // the real thing: a lasso through the app's own appl
   const ptr=P.ptr||{x:-1,y:-1},br=et.el?et.el.getBoundingClientRect():null,vr=vpEl.getBoundingClientRect();
   const onBtn=!!br&&ptr.x>=br.left-vr.left-2&&ptr.x<=br.right-vr.left+2&&ptr.y>=br.top-vr.top-2&&ptr.y<=br.bottom-vr.top+2;
   const litBefore=pendingSel.size;
-  // the first Evolves ease the old canvas into the new (the gradient is visible as it forms)
+  // the first Evolves cross-fade the old frame into the new one (display only: the engine has already run; no colour is changed)
   if(s.ease>0){if(dw.width!==WW||dw.height!==WH){dw.width=WW;dw.height=WH;}
     dw.style.left='0px';dw.style.top='0px';dw.style.width=WW+'px';dw.style.height=WH+'px';
     wctx.clearRect(0,0,WW,WH);wctx.drawImage(cvs,0,0);dw.style.opacity='1';dw.style.display='block';}

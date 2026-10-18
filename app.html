@@ -1128,16 +1128,14 @@ body.kiosk .hs .v{font-size:20px;}
   <div id="protoBody" style="padding-top:6px;line-height:1.5;letter-spacing:.02em;text-transform:none;"></div>
 </details>
 <script>
-// Variant config + starting-hint registry are ES modules shared with the server
-// (lib/variant.js, lib/hints.js). The app boots once they've loaded.
+// Variant config (save namespace) + the "Dream it" helpers are ES modules
+// (lib/variant.js, lib/dream.js). The app boots once they've loaded.
 window.GERM_READY=new Promise(res=>{window.__germReady=res;setTimeout(res,6000);});
 </script>
 <script type="module">
 import * as V from '/lib/variant.js';
-import * as H from '/lib/hints.js';
 import * as D from '/lib/dream.js';
-import * as I from '/lib/influence.js';
-window.GERM={V,H,D,I};
+window.GERM={V,D};
 window.__germReady();
 </script>
 <script>
@@ -1163,16 +1161,14 @@ function normTheme(raw){
   return t||'love';
 }
 if(QS.get('theme')){const ti=document.getElementById('themeIn');if(ti)ti.value=normTheme(QS.get('theme'));}
-// ── PROTOTYPE (variant B): namespaced themes + starting hints ──
-// The input shows the plain theme ("love"); every API call uses the
-// namespaced theme for the current hint ("pb-love-pull"), so each hint
-// has its own live canvas and nothing here can touch a real theme's rows.
-let currentHint=(QS.get('hint')||'').toLowerCase()||null;
-let liveBaseGen=null;   // mother_display generation this session started from (null = not from live)
+// ── PROTOTYPE (variant B): save isolation ──
+// The input shows the plain theme ("love"); every API call uses this
+// branch's namespaced theme ("pb-love"; the server forces it too), so
+// nothing here can touch a real theme's rows. Colour behaviour is main's.
 function baseTheme(raw){const t=normTheme(raw);return window.GERM?GERM.V.parseNsTheme(t).base:t;}
 function themeNow(){return baseTheme(document.getElementById('themeIn').value);}
-function hintNow(){return window.GERM?GERM.H.resolveHint(themeNow(),currentHint):(currentHint||'');}
-function apiTheme(){return window.GERM?GERM.V.nsTheme(themeNow(),hintNow()):themeNow();}
+function hintNow(){return 'orig';}   // dream-event label only: the original engine and start canvas (no hints)
+function apiTheme(){return window.GERM?GERM.V.nsTheme(themeNow()):themeNow();}
 // Genesis runs scripted generations before the visitor arrives. Those must
 // not score for the visitor, and must stop mutating once they take over.
 let genesisAborted=false, genesisGenerations=0, userEra=false;
@@ -1234,11 +1230,8 @@ let historyLayers=[];
 let userOwnedCells=new Set();
 // PROTOTYPE (glow rule): the cells chosen since the last Evolve. Only these are
 // highlighted (while selecting); every Evolve clears it, so nothing glows after.
-// Hold data (levels, loose, stabMap v2) is untouched by this.
+// Overlay only: hold data and colours are untouched by this.
 let pendingSel=new Set();
-// PROTOTYPE: cells lassoed this session incl. re-chosen inherited holds (sent as the SM2 chosen bit),
-// and the live canvas contributor_count at load (hint half-life clock, lib/variant.js hintHalfLife).
-const chosenCells=new Set();let liveContribs=0;
 let userScore=0;          // current net score (can go negative)
 let affinityPerCell=new Float32Array(WT); // per-cell score contribution
 let generationLog=[];     // [{gen, preserved, released, delta, cumulative}]
@@ -1340,7 +1333,7 @@ function seedCanvas(){
 function initCells(){
   cells=Array.from({length:WT},()=>({c:'#000',s:0}));
   affinityPerCell=new Float32Array(WT);
-  userOwnedCells=new Set();chosenCells.clear();pendingSel.clear();
+  userOwnedCells=new Set();pendingSel.clear();
   userScore=0;generationLog=[];historyLayers=[];
   seedCanvas();
 }
@@ -1576,10 +1569,6 @@ function themePal(){
   return Array.from({length:8},(_,i)=>`hsl(${(h*3+i*32)%360},60%,${38+i*5}%)`);
 }
 function buildPool(){
-  // PROTOTYPE (tuned engine): near holds the pool is held colours only (≤ ~60
-  // sampled); the theme palette only when nothing is held. No gold drift.
-  if(tunedOn()){const locked=[];for(let i=0;i<WT;i++)if(cells[i].s>0)locked.push(i);
-    if(locked.length){const str=Math.max(1,Math.floor(locked.length/60)),pool=[];for(let q=0;q<locked.length;q+=str)pool.push(cells[locked[q]].c);return pool;}}
   const tp=themePal(),pool=[];
   tp.forEach(c=>{for(let i=0;i<8;i++)pool.push(c);});
   const locked=cells.filter(c=>c.s>0);
@@ -1602,9 +1591,8 @@ function buildRecogField(){
   // Cap radius to 12 during genesis (few cells) — grows with coverage later
   const radius=Math.min(12,Math.max(8,Math.round(4+density*60+Math.sqrt(absCount)*0.3)));
   recogField=new Float32Array(WT);
-  const noLoose=tunedOn();   // PROTOTYPE: loose holds (coarse loops) don't attract
   for(let i=0;i<WT;i++){
-    if(cells[i].s===0||(noLoose&&cells[i].w))continue;
+    if(cells[i].s===0)continue;
     const col=i%WC,row=Math.floor(i/WC);
     const str=(cells[i].s>=2?0.85:0.55)+cells[i].s*0.1;
     for(let dy=-radius;dy<=radius;dy++){
@@ -1806,120 +1794,8 @@ function stepGenFast(){
   generation++;
   // Don't call scoreGeneration during fast void — nothing to score
 }
-// ═══════════════════════════════════════════════════════════════════
-// PROTOTYPE (variant B): TUNED ENGINE — /workspace/germinal/sim/TUNING_REPORT.md
-// (parameters in lib/variant.js PARAMS). Runs only in the visitor's era; the
-// intro (genesis) keeps the production rules (stepGen below, unchanged).
-//  • Oct 18 (PARAMS.gradient, lib/influence.js): Evolve is a GRADIENT around
-//    the holds — free cells take related shades of the nearest firm hold with
-//    influence fading with distance (exp(−d/4.5), ≤ 16 cells); far cells are
-//    re-randomised from the starting canvas every Evolve. With gradient:false
-//    the earlier free-cell rules run:
-//      far from holds: 0.5% local jitter, else 2% fade toward dark; near holds:
-//      spread along contours + similar colours (contour field blends hint and
-//      canvas, w = 0.5^(contributions/30)); never reset to a pool colour
-//  • loose holds (coarse loops > 1,200 cells) protect pixels but don't spread
-//  • glow (holds at level ≥ 2 brighten toward max channel 230): OFF, glowP 0
-//    (glow rule: nothing glows after Evolve)
-// ═══════════════════════════════════════════════════════════════════
-function tunedOn(){return userEra&&!!(window.GERM&&GERM.V.PARAMS);}
-const TR=new Uint8Array(WT),TG=new Uint8Array(WT),TB=new Uint8Array(WT);
-const CGX=new Float32Array(WT),CGY=new Float32Array(WT),CGM=new Float32Array(WT);
-let HGX=null,HGY=null,HGM=null,hintFieldKey='';
-function blurF(A,r,passes){const o=Float32Array.from(A),t=new Float32Array(WT);
-  for(let ps=0;ps<passes;ps++){
-    for(let y=0;y<WR;y++){let sm=0,n=0;for(let x=-r;x<WC+r;x++){const xa=x+r;if(xa<WC){sm+=o[y*WC+xa];n++;}const xr=x-r-1;if(xr>=0){sm-=o[y*WC+xr];n--;}if(x>=0&&x<WC)t[y*WC+x]=sm/n;}}
-    for(let x=0;x<WC;x++){let sm=0,n=0;for(let y=-r;y<WR+r;y++){const ya=y+r;if(ya<WR){sm+=t[ya*WC+x];n++;}const yr=y-r-1;if(yr>=0){sm-=t[yr*WC+x];n--;}if(y>=0&&y<WR)o[y*WC+x]=sm/n;}}}
-  return o;}
-// unit luminance gradient ĝ and strength min(1,|g|/1.5) of an RGB image (box blur r=3, 2 passes)
-function gradField(R,G,B,GX,GY,GM){const P=GERM.V.PARAMS,L=new Float32Array(WT);
-  for(let i=0;i<WT;i++)L[i]=0.2126*R[i]+0.7152*G[i]+0.0722*B[i];
-  const Bl=blurF(L,P.gradBlur,P.gradPasses);
-  for(let y=1;y<WR-1;y++)for(let x=1;x<WC-1;x++){const i=y*WC+x;
-    const gx=(Bl[i+1]-Bl[i-1])/2,gy=(Bl[i+WC]-Bl[i-WC])/2,m=Math.hypot(gx,gy)+1e-6;
-    GX[i]=gx/m;GY[i]=gy/m;GM[i]=Math.min(1,m/P.gradNorm);}}
-function ensureHintField(){const key=themeNow()+'|'+hintNow();if(hintFieldKey===key&&HGX)return;
-  const h=GERM.H.hintCanvas(themeNow(),hintNow());
-  HGX=new Float32Array(WT);HGY=new Float32Array(WT);HGM=new Float32Array(WT);
-  gradField(h.R,h.G,h.B,HGX,HGY,HGM);hintFieldKey=key;}
-function hintWeight(){
-  // No hint (honest noise / warm speckle): spreading follows the current canvas from the start.
-  const h=GERM.H.HINTS[hintNow()];if(h&&h.field===false)return 0;
-  return Math.pow(0.5,(liveContribs||0)/GERM.V.PARAMS.hintHalfLife);}
-let _dimPal=null,_dimPalKey='';
-function dimPal(){const k=themeNow();if(_dimPal&&_dimPalKey===k)return _dimPal;
-  const tmp=document.createElement('canvas').getContext('2d');
-  _dimPal=themePal().map(c=>{tmp.fillStyle=c;const h=tmp.fillStyle;const[r,g,b]=h.startsWith('#')?h2r(h):[128,128,128];return[r*0.3,g*0.3,b*0.3];});
-  _dimPalKey=k;return _dimPal;}
-let GLV=null,GSP=null,H0hex=null,H0key='';const HX2=Array.from({length:256},(_,v)=>v.toString(16).padStart(2,'0'));
-const TC=new Array(WT).fill(null);   // the colour string TR/TG/TB were read from (or written as): same string → no re-parse
-function stepGenTuned(){
-  const P=GERM.V.PARAMS,R=TR,G=TG,B=TB,rnd01=Math.random;
-  for(let i=0;i<WT;i++){const c=cells[i].c;if(c===TC[i])continue;TC[i]=c;R[i]=parseInt(c.slice(1,3),16);G[i]=parseInt(c.slice(3,5),16);B[i]=parseInt(c.slice(5,7),16);}
-  const cl=v=>v<0?0:v>255?255:v;
-  const lerpTo=(i,r,g,b,t)=>{const nr=cl(Math.round(R[i]+(r-R[i])*t)),ng=cl(Math.round(G[i]+(g-G[i])*t)),nb2=cl(Math.round(B[i]+(b-B[i])*t));
-    if(nr!==R[i]||ng!==G[i]||nb2!==B[i]){R[i]=nr;G[i]=ng;B[i]=nb2;cells[i].c=TC[i]=r2h(nr,ng,nb2);}};
-  const grad=P.gradient&&GERM.I;
-  if(!grad)buildRecogField();const rf=recogField;   // (the gradient engine doesn't use the recognition field)
-  // PROTOTYPE (Oct 18): Evolve as a gradient around the holds (lib/influence.js) —
-  // free cells: related shades of the selected colour nearby, fading with distance;
-  // far cells re-randomised from the starting canvas. Held cells: drift rules below.
-  const lv=GLV||(GLV=new Uint8Array(WT));
-  if(grad){const sp=GSP||(GSP=new Uint8Array(WT));
-    for(let i=0;i<WT;i++){const c=cells[i];lv[i]=c.s;sp[i]=c.s>0&&!c.w?1:0;}
-    const h0=GERM.H.hintCanvas(themeNow(),hintNow()),hk=themeNow()+'|'+hintNow();
-    if(H0key!==hk){H0hex=new Array(WT);for(let j=0;j<WT;j++)H0hex[j]='#'+HX2[h0.R[j]]+HX2[h0.G[j]]+HX2[h0.B[j]];H0key=hk;}
-    GERM.I.gradientStep({R,G,B,level:lv,spreads:sp,H0:h0,WC,WR,P,onSet:(i,j)=>{cells[i].c=TC[i]=j>=0?H0hex[j]:'#'+HX2[R[i]]+HX2[G[i]]+HX2[B[i]];}});}
-  const W=grad?1:hintWeight();if(!grad&&W>0.001)ensureHintField();if(!grad&&W<0.999)gradField(R,G,B,CGX,CGY,CGM);   // contour fields: old free-cell rules only
-  const alf=(i,dx,dy,dl)=>(W>0.001?W*Math.abs((dx*HGX[i]+dy*HGY[i])/dl)*HGM[i]:0)+(W<0.999?(1-W)*Math.abs((dx*CGX[i]+dy*CGY[i])/dl)*CGM[i]:0);
-  const pal=dimPal(),nb=new Int32Array(8);
-  const nbIdx=(i)=>{const c=i%WC,r=(i/WC)|0;let k=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const nx=c+dx,ny=r+dy;if(nx>=0&&nx<WC&&ny>=0&&ny<WR)nb[k++]=ny*WC+nx;}return k;};
-  for(let i=0;i<WT;i++){if(grad&&lv[i]===0)continue;const s=cells[i].s;
-    if(s===0){const f=rf[i];
-      if(rnd01()>P.bgMut+f*0.55){if(f<=0.35&&rnd01()<P.fadeP)lerpTo(i,10,10,20,P.fadeT);continue;}   // neglect fades toward dark
-      const roll=rnd01();
-      if(f<=0.35){const k=nbIdx(i);   // far from holds: 0.5% local jitter only, no bright palette colour
-        if(roll<0.75&&k){const j=nb[(rnd01()*k)|0];lerpTo(i,R[j],G[j],B[j],1);}
-        else{const pc=pal[(rnd01()*pal.length)|0];lerpTo(i,pc[0],pc[1],pc[2],0.5);}
-        continue;}
-      if(roll<0.58){   // pull toward the held cell that is nearest ALONG contours and most similar in colour
-        const c=i%WC,r=(i/WC)|0;let best=-1,bestD=1e9;const sr=Math.min(14,Math.ceil(f*18));
-        for(let dy=-sr;dy<=sr;dy++){const ny=r+dy;if(ny<0||ny>=WR)continue;
-          for(let dx=-sr;dx<=sr;dx++){const nx=c+dx;if(nx<0||nx>=WC)continue;const ni=ny*WC+nx;const cn=cells[ni];
-            if(!cn.s||cn.w)continue;    // loose holds don't spread
-            const cd=Math.abs(R[i]-R[ni])+Math.abs(G[i]-G[ni])+Math.abs(B[i]-B[ni]);
-            const dl=Math.hypot(dx,dy)+1e-6,d=(Math.abs(dx)+Math.abs(dy))*(1+P.alignK*alf(i,dx,dy,dl))+cd/P.colourDiv;
-            if(d<bestD){bestD=d;best=ni;}}}
-        if(best>=0){const cd=Math.abs(R[i]-R[best])+Math.abs(G[i]-G[best])+Math.abs(B[i]-B[best]);
-          if(cd<=P.pullMaxColour)lerpTo(i,R[best],G[best],B[best],(0.3+f*0.45)*Math.exp(-cd/P.pullDecay));}
-        // no held source → nothing (never reset to a pool colour)
-      }else{   // noise near holds follows contours too: copy the most similar, most along-contour neighbour, or nothing
-        const k=nbIdx(i);let bj=-1,bc=1e9;const c0=i%WC,r0=(i/WC)|0;
-        for(let q=0;q<k;q++){const j=nb[q];const dx=j%WC-c0,dy=((j/WC)|0)-r0,dl=Math.hypot(dx,dy);
-          const cd=Math.abs(R[i]-R[j])+Math.abs(G[i]-G[j])+Math.abs(B[i]-B[j]);
-          const cost=cd*(1+P.noiseAlignK*alf(i,dx,dy,dl))+P.noiseJitter*rnd01();if(cost<bc){bc=cost;bj=j;}}
-        if(bj>=0&&bc<P.noiseMaxCost)lerpTo(i,R[bj],G[bj],B[bj],P.noiseT);
-      }
-    }else{
-      // glow: re-chosen holds (level ≥ 2) brighten toward their own colour at max channel 230
-      if(s>=2&&rnd01()<P.glowP*(s-1)){const m=Math.max(R[i],G[i],B[i],1),mn=Math.min(R[i],G[i],B[i]);
-        if(m>=P.glowMinMax&&(m-mn)/m>=P.glowMinSat){const k=P.glowTarget/m;
-          if(k>1)lerpTo(i,Math.min(255,R[i]*k),Math.min(255,G[i]*k),Math.min(255,B[i]*k),P.glowT);}}
-      // held-cell drift (production rules)
-      if(s===1){if(rnd01()>0.08)continue;const c=i%WC,r=(i/WC)|0,l=[];
-        for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const nx=c+dx,ny=r+dy;if(nx<0||nx>=WC||ny<0||ny>=WR)continue;const j=ny*WC+nx;if(cells[j].s)l.push(j);}
-        if(l.length){const j=l[(rnd01()*l.length)|0];lerpTo(i,R[j],G[j],B[j],0.08+rnd01()*0.12);}
-        else{const k=nbIdx(i);if(k){const j=nb[(rnd01()*k)|0];lerpTo(i,R[j],G[j],B[j],0.06);}}
-      }else if(s===2){if(rnd01()>0.03)continue;const k=nbIdx(i);if(k){const j=nb[(rnd01()*k)|0];lerpTo(i,R[j],G[j],B[j],0.03+rnd01()*0.04);}}
-      else{if(rnd01()>0.005)continue;const k=nbIdx(i),l=[];for(let q=0;q<k;q++)if(cells[nb[q]].s>=2)l.push(nb[q]);
-        if(l.length){const j=l[(rnd01()*l.length)|0];lerpTo(i,R[j],G[j],B[j],0.015);}}
-    }}
-  generation++;
-  scoreGeneration();
-}
 function stepGen(){
-  pendingSel.clear();   // glow rule: Evolve pressed → the selection highlight goes
-  if(tunedOn())return stepGenTuned();   // PROTOTYPE: visitor's era uses the tuned engine
+  pendingSel.clear();   // glow rule: Evolve pressed → the selection highlight goes (not colour: overlay only)
   const pool=buildPool();buildRecogField();
   for(let i=0;i<WT;i++){
     const s=cells[i].s;
@@ -2099,7 +1975,7 @@ function beginUserEra(){
   if(userEra)return;
   userEra=true;genesisAborted=true;
   genesisGenerations=generation;
-  userOwnedCells=new Set();chosenCells.clear();pendingSel.clear();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];
+  userOwnedCells=new Set();pendingSel.clear();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];
   const sf=document.getElementById('scoreFlash');if(sf){clearTimeout(sf._t);sf.className='';}
   refreshAffinityHud();updateStats();
   lsSet('germinal_genesis_seen','1');
@@ -2169,21 +2045,16 @@ function applyLasso(era){
   const minR=Math.max(0,Math.floor(Math.min(...wys)/CS));
   const maxR=Math.min(WR-1,Math.ceil(Math.max(...wys)/CS));
   let count=0,upgraded=0;
-  // PROTOTYPE (tuned engine): a loop covering > looseCells (1,200) cells makes
-  // LOOSE holds — they keep their pixels but don't spread and release faster.
-  // A tighter loop over a cell makes it firm again.
-  let area=0;const lassoIdx=[];
-  if(!era)for(let r=minR;r<=maxR;r++)for(let c=minC;c<=maxC;c++)if(ptInPoly(c*CS+CS/2,r*CS+CS/2,wp))area++;
-  const wide=!era&&window.GERM&&GERM.V.PARAMS&&area>GERM.V.PARAMS.looseCells;
+  const lassoIdx=[];   // PROTOTYPE: the cells this lasso touched (glow while selecting; the dream's record)
   for(let r=minR;r<=maxR;r++){
     for(let c=minC;c<=maxC;c++){
       if(!ptInPoly(c*CS+CS/2,r*CS+CS/2,wp))continue;
       const i=r*WC+c;
-      if(era){if(cells[i].s>0){cells[i].s=0;cells[i].w=0;userOwnedCells.delete(i);pendingSel.delete(i);chosenCells.add(i);count++;}}   // chosen + level 0 = released by you (lib/merge.js)
+      if(era){if(cells[i].s>0){cells[i].s=0;userOwnedCells.delete(i);pendingSel.delete(i);count++;}}
       else{
-        if(cells[i].s===0){cells[i].s=1;cells[i].w=wide?1:0;userOwnedCells.add(i);count++;}
-        else{if(cells[i].s<3){cells[i].s++;upgraded++;count++;}if(!wide)cells[i].w=0;}
-        chosenCells.add(i);pendingSel.add(i);lassoIdx.push(i);
+        if(cells[i].s===0){cells[i].s=1;userOwnedCells.add(i);count++;}
+        else if(cells[i].s<3){cells[i].s++;upgraded++;count++;}
+        pendingSel.add(i);lassoIdx.push(i);
       }
     }
   }
@@ -2790,11 +2661,8 @@ window.resetAll=()=>{
   document.getElementById('hudA').className='v';
   showToast('Canvas reset');
 };
-document.getElementById('themeIn').addEventListener('change',async()=>{
-  // PROTOTYPE: a theme change joins that theme's live canvas (or its hint).
-  if(!userEra){seedCanvas();renderAll();showToast('Theme updated — canvas reseeded');return;}
-  userOwnedCells=new Set();chosenCells.clear();pendingSel.clear();currentShareId=null;
-  await startFromLive();renderAll();updateStats();renderProtoBadge();
+document.getElementById('themeIn').addEventListener('change',()=>{
+  seedCanvas();renderAll();showToast('Theme updated — canvas reseeded');
 });
 
 // Swipe down to close any panel
@@ -3486,7 +3354,6 @@ function hidePanel(id){
 
 window.dismissSim=async function(){
   hidePanel('simPanel');
-  await startFromLive();
   beginUserEra();
   if(window.DREAM){DREAM.afterIntro();return;}   // PROTOTYPE: "Dream it"
   // Show onboarding only if never seen before
@@ -3498,10 +3365,7 @@ window.dismissSim=async function(){
 window.skipSim=async function(){
   hidePanel('simPanel');
   genesisAborted=true;            // stop the scripted genesis loop
-  // Let the genesis loop notice the abort before we replace the canvas, so a
-  // late intro frame can't paint over the live canvas.
-  if(genesisPromise)await Promise.race([genesisPromise.catch(()=>{}),new Promise(r=>setTimeout(r,3000))]);
-  await startFromLive();
+  if(generation<40){for(let k=0;k<20;k++)stepGenFast();renderAll();}
   beginUserEra();
   // PROTOTYPE: "Dream it" (dream-ui.js) replaces the text onboarding panel.
   if(window.DREAM){DREAM.afterIntro();return;}
@@ -3549,33 +3413,15 @@ function getDeviceId(){
   return id;
 }
 
-// RGB555 quantisation, same as lib/hints.js q5/u5 (inlined so encoding never
-// depends on the module having loaded).
-function q5(v){return Math.min(31,Math.max(0,Math.round(v*31/255)));}
-function u5(q){return Math.round((q&31)*255/31);}
-// ── Chosen map: 1 bit per cell the visitor lassoed this session (and still
-// holds). Sent in the existing stabMap field so the server knows which holds
-// were re-chosen; the others loosen (lib/merge.js). ──
-// SM2 (lib/merge.js): one nibble per cell — bits 0–1 hold level, bit 2 loose,
-// bit 3 chosen this session (lassoed or erased). Replaces the 1-bit chosen map.
-function encodeStab(){
-  const bytes=new Uint8Array(Math.ceil(WT/2));
-  for(let i=0;i<WT;i++){const c=cells[i];if(!c)continue;const ch=chosenCells.has(i);if(!c.s&&!ch)continue;
-    const n=(Math.min(3,c.s)&3)|(c.s&&c.w?4:0)|(ch?8:0);   // chosen with level 0 = you erased it
-    bytes[i>>1]|=n<<((i&1)<<2);}
-  let bin='';for(let i=0;i<bytes.length;i+=8192)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+8192));
-  return btoa(bin);
-}
 // ── Encode current canvas state for server ──
 function encodeForServer(){
   // Pack: high bit = stabilised, low 15 bits = quantised colour
   const arr = new Uint16Array(WT);
   for(let i=0;i<WT;i++){
     const c = cells[i].c||'#000000';
-    // Round to nearest (was >>3, which truncated and darkened every trip).
-    const r=q5(parseInt(c.slice(1,3),16));
-    const g=q5(parseInt(c.slice(3,5),16));
-    const b=q5(parseInt(c.slice(5,7),16));
+    const r=parseInt(c.slice(1,3),16)>>3;
+    const g=parseInt(c.slice(3,5),16)>>3;
+    const b=parseInt(c.slice(5,7),16)>>3;
     const q = ((r&31)<<10)|((g&31)<<5)|(b&31);
     arr[i] = (cells[i].s>0 ? 0x8000 : 0) | q;
   }
@@ -3586,7 +3432,7 @@ function encodeForServer(){
 }
 
 // ── Decode canvas state from server ──
-function decodeFromServer(b64,stab64){
+function decodeFromServer(b64){
   try{
     const bin=atob(b64);
     const bytes=new Uint8Array(bin.length);
@@ -3594,17 +3440,13 @@ function decodeFromServer(b64,stab64){
     const arr=new Uint16Array(bytes.buffer);
     for(let i=0;i<Math.min(WT,arr.length);i++){
       const q=arr[i]&0x7FFF;
-      const r=u5(q>>10), g=u5(q>>5), b=u5(q);   // full 0–255 range (was <<3, max 248)
+      const r=((q>>10)&31)<<3;
+      const g=((q>>5)&31)<<3;
+      const b=(q&31)<<3;
       cells[i]={
         c:'#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join(''),
-        s:(arr[i]&0x8000)?1:0, w:0
+        s:(arr[i]&0x8000)?1:0
       };
-    }
-    // PROTOTYPE: hold levels + loose from the SM2 map (absent → level 1 for held cells)
-    if(typeof stab64==='string'&&stab64.length===4*Math.ceil(Math.ceil(WT/2)/3)){
-      const sb=atob(stab64);
-      for(let i=0;i<WT;i++){if(!cells[i].s)continue;const n=(sb.charCodeAt(i>>1)>>((i&1)<<2))&15;
-        cells[i].s=Math.max(1,n&3);cells[i].w=(n&4)?1:0;}
     }
     return true;
   }catch(e){ console.error('Decode failed:',e); return false; }
@@ -3618,27 +3460,15 @@ async function saveToServer(){
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        theme: apiTheme(),               // PROTOTYPE: namespaced, e.g. pb-love-pull
+        theme: apiTheme(),               // PROTOTYPE: namespaced, e.g. pb-love (save isolation)
         generation,
         parentId: currentShareId || null,
         cellData,
-        stabMap: encodeStab(),           // hold levels / loose / chosen (SM2, lib/merge.js)
-        baseGen: liveBaseGen,            // live-canvas generation this session started from
         contributorId: getDeviceId(),
       })
     });
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
-    // If our save continued the live canvas directly, a later save from this
-    // session continues the new live generation; otherwise only our held
-    // cells will merge.
-    if(data.merge&&data.merge.ok){
-      liveBaseGen = data.merge.mode==='held-only' ? null : data.merge.motherGeneration;
-      if(data.merge.contributorCount)liveContribs=data.merge.contributorCount;
-      showToast(data.merge.mode==='held-only'
-        ? 'Merged your held pixels into the live canvas'
-        : 'Your canvas is now the live canvas');
-    }
     // Build the share link from the domain the app is CURRENTLY running on,
     // not the server's hardcoded value. This makes links work on
     // germinal.pages.dev now and germinal.studio later — no code change
@@ -3661,14 +3491,10 @@ async function loadFromServer(shareId){
     const data = await res.json();
 
     // Apply received canvas state
-    if(!decodeFromServer(data.cellData,data.stabMap)) return false;
-    chosenCells.clear();
+    if(!decodeFromServer(data.cellData)) return false;
     generation = data.generation||1;
-    // PROTOTYPE: stored theme is namespaced ("pb-love-pull"): show "love", keep the hint.
-    const pt = window.GERM ? GERM.V.parseNsTheme(String(data.theme||'love')) : {base:data.theme||'love',hint:null};
-    document.getElementById('themeIn').value = pt.base;
-    if(pt.hint) currentHint = pt.hint;
-    liveBaseGen = null;  // a share-link lineage is not the live canvas: held-only merge
+    // PROTOTYPE: stored theme is namespaced ("pb-love"): show "love".
+    document.getElementById('themeIn').value = window.GERM ? GERM.V.parseNsTheme(String(data.theme||'love')).base : (data.theme||'love');
     currentShareId = shareId;
 
     // Show "received canvas" banner
@@ -3795,7 +3621,6 @@ germinal.studio`;
 
 // BOOT
 // ═══════════════════════════════════════════════════════════════════
-let genesisPromise=null;
 function bootApp(){
 if(window.GERM){const ti=document.getElementById('themeIn');ti.value=baseTheme(ti.value);}
 renderProtoBadge();
@@ -3824,7 +3649,7 @@ checkShareUrl().then(isShare => {
     // Fresh canvas — start genesis immediately.
     // runGenesis begins with the void phase (stepGenFast) so we don't
     // need any pre-loop here. A short delay lets the first paint settle.
-    setTimeout(()=>{ (genesisPromise=runGenesis()).catch(err=>{
+    setTimeout(()=>{ runGenesis().catch(err=>{
       if(err&&err.message==='genesis-skipped')return; // visitor skipped — expected
       beginUserEra();
       // If genesis ever throws, don't trap the user on a black screen —
@@ -3855,60 +3680,18 @@ checkShareUrl().then(isShare => {
 } // bootApp
 GERM_READY.then(bootApp);
 
-// ── PROTOTYPE (variant B): every visitor starts from the shared live canvas
-// for their theme+hint; if it is empty (or the API is unavailable), from the
-// theme's primordial hint (lib/hints.js). Returns 'live' | 'hint'.
-async function startFromLive(){
-  let src='hint';
-  chosenCells.clear();   // a session's choices start when it joins the live canvas (not the intro's bots)
-  try{
-    const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),5000);
-    const q=`theme=${encodeURIComponent(themeNow())}&hint=${encodeURIComponent(hintNow())}`;
-    const r=await fetch(`${API}/display-live?${q}`,{signal:ctl.signal,cache:'no-store'});
-    clearTimeout(t);
-    if(r.ok){const d=await r.json();
-      if(d&&d.cellData&&decodeFromServer(d.cellData,d.stabMap)){
-        generation=Math.max(1,d.generation||1);
-        liveContribs=d.contributorCount||0;
-        liveBaseGen=d.source==='mother_display'?(d.generation||0):null;
-        src='live';
-      }}
-  }catch(e){/* offline / not configured — start from the hint */}
-  if(src==='hint'){
-    liveBaseGen=null;liveContribs=0;
-    if(window.GERM){
-      const h=GERM.H.hintCanvas(themeNow(),hintNow());
-      for(let i=0;i<WT;i++)cells[i]={c:r2h(h.R[i],h.G[i],h.B[i]),s:0};
-    }else{for(let k=0;k<30;k++)stepGenFast();}
-    generation=1;
-  }
-  renderAll();
-  showToast(src==='live'?'You’re on the live canvas — Zoom · Lasso · Evolve':'Empty live canvas — starting from the “'+hintNow()+'” hint');
-  renderProtoBadge(src);
-  return src;
-}
-let protoSrc='';
-function renderProtoBadge(src){
-  if(src)protoSrc=src;
+// ── PROTOTYPE (variant B): badge so testers know what they're on ──
+function renderProtoBadge(){
   const lab=document.getElementById('protoLabel'),body=document.getElementById('protoBody');
   if(!lab||!body||!window.GERM)return;
-  const V=GERM.V,H=GERM.H,t=themeNow(),h=hintNow();
-  lab.textContent='Prototype '+V.VARIANT+' · hint: '+h;
+  const V=GERM.V,t=themeNow();
+  lab.textContent='Prototype '+V.VARIANT+' · original engine';
   body.textContent='';
   const p=document.createElement('div');
-  p.textContent=V.VARIANT_BLURB+' Test canvas “'+V.nsTheme(t,h)+'” — separate from the real site.'+(protoSrc==='hint'?' Live canvas empty: started from the hint.':'');
+  p.textContent=V.VARIANT_BLURB+' Test canvas “'+V.nsTheme(t)+'” — separate from the real site.';
   body.appendChild(p);
-  const l=document.createElement('div');l.style.marginTop='6px';l.textContent='Starting hint: ';
-  H.hintsFor(t).forEach((name,k)=>{
-    if(k)l.appendChild(document.createTextNode(' · '));
-    const u=new URL(location.href);u.searchParams.set('hint',name);u.searchParams.delete('c');
-    const a=document.createElement('a');a.href=u.pathname+u.search;a.textContent=name;
-    a.title=H.HINTS[name].blurb;a.style.color=name===h?'#ffcc44':'#c8a96e';
-    l.appendChild(a);
-  });
-  body.appendChild(l);
   const lv=document.createElement('a');
-  lv.href='/live?theme='+encodeURIComponent(t)+'&hint='+encodeURIComponent(h);
+  lv.href='/live?theme='+encodeURIComponent(t);
   lv.textContent='Open this live canvas →';lv.style.cssText='display:block;margin-top:6px;color:#c8a96e;';
   body.appendChild(lv);
 }
@@ -3918,7 +3701,16 @@ function renderProtoBadge(src){
 async function quickStart(){
   document.getElementById('simPanel').classList.add('done');
   document.getElementById('onboard').classList.add('done');
-  await startFromLive();
+  let loaded=false;
+  try{
+    const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),2500);
+    const theme=normTheme(document.getElementById('themeIn').value);
+    const r=await fetch(`${API}/display-live?theme=${encodeURIComponent(theme)}`,{signal:ctl.signal});
+    clearTimeout(t);
+    if(r.ok){const d=await r.json();
+      if(d&&d.cellData&&decodeFromServer(d.cellData)){generation=Math.max(1,d.generation||1);loaded=true;}}
+  }catch(e){/* offline or no live canvas yet — fall back to local priming */}
+  if(!loaded){for(let k=0;k<30;k++){stepGenFast();if(k%5===4)await new Promise(r=>setTimeout(r,0));}}
   renderAll();beginUserEra();
   if(window.DREAM&&DREAM.afterIntro())return;   // PROTOTYPE: first visit / kiosk attract → the vision
   showToast(KIOSK?'Drag to lasso what resonates · then press Evolve':'Welcome back — Zoom · Lasso · Evolve');

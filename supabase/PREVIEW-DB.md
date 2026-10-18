@@ -111,3 +111,13 @@ Only this branch's `pb-*` rows use it; production rows are never read or written
 Before any real merge to main, either keep this encoding (and make every reader
 split on `:v2:`) or add a `mother_display.stab_map` column (commented out in
 `preview-setup.sql`).
+
+## Oct 18: merge shelved (engine audit)
+
+The shared-canvas merge (lib/merge.js, the `:v2:` hold-level suffix in
+`mother_display.cell_data`, the SM2 `stab_map`) is shelved on this branch.
+Saves now behave as on main: each save is a `canvas_states` row and the
+theme's `mother_display` row is replaced by the latest save. Still forced
+into this branch's namespace, now `pb-<theme>` (e.g. `pb-love`), so the old
+`pb-love-noise` / `pb-love-pull` … rows (which may carry `:v2:` data) are
+simply no longer read. No schema change.
