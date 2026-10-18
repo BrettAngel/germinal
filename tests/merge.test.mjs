@@ -463,14 +463,20 @@ test('dream cluster grows across cycles, for every form: outward, mostly into th
   for(const form of D.FORMS){
   const WC = 260, WR = 220, rgb = speckle(WC, WR, 11), S = D.formSize(form), fx = 130, fy = 110, mask = D.formMask(form, S), rand = H.mulberry32(4);
   const T = D.dreamTimeline(false), held = new Set();
-  for(const p of [fy * WC + fx, fy * WC + fx + 4, (fy + 3) * WC + fx - 2, (fy - 3) * WC + fx + 2]) holdLoop(D.loopPoints(p % WC, (p / WC) | 0, 1.35, rand), WC, held);
-  const X0 = fx - (S >> 1), Y0 = fy - (S >> 1), inF = i => { const x = i % WC - X0, y = ((i / WC) | 0) - Y0; return x >= 0 && y >= 0 && x < S && y < S && mask[y * S + x]; };
+  const tune = D.formTuning(form), hole = D.formHole(form, S), X0 = fx - (S >> 1), Y0 = fy - (S >> 1);
+  const HX = X0 + (hole ? hole.cx : 0), HY = Y0 + (hole ? hole.cy : 0), inHole = i => hole && Math.hypot(i % WC + .5 - HX, ((i / WC) | 0) + .5 - HY) < hole.r;
+  for(const q of tune.starts){ const sx = Math.round(fx + q.dx * S), w = q.win || 16;
+    const pk = D.pickScattered({ rgb, WC, x0: sx - (w >> 1), y0: Math.round(fy + (q.dy || 0) * S) - (w >> 1), w, h: w, maxPicks: q.n, minGap: 3, prefer: D.RED_BINS,
+      exclude: hole ? (i => Math.hypot(i % WC + .5 - HX, ((i / WC) | 0) + .5 - HY) < hole.r + 1.25 * 1.35 + .75) : null });
+    assert.equal(pk.picks.length, q.n, form + ' first picks');
+    for(const p of pk.picks) holdLoop(D.loopPoints(p % WC, (p / WC) | 0, 1.35, rand), WC, held); }
+  const inF = i => { const x = i % WC - X0, y = ((i / WC) | 0) - Y0; return x >= 0 && y >= 0 && x < S && y < S && mask[y * S + x]; };
   let formN = 0; for(const v of mask) formN += v;
   const sizes = [held.size], cover = [], spread = [];
   T.cycles.forEach((c, k) => {
     const u = k / (T.cycles.length - 1), r = Math.max(1.4, (26 + 16 * u) / (9 * Math.pow(0.45, u) * 2));
-    const tg = D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster: [...held], WC, WR, mask, S, fx, fy, ring: Math.max(2, Math.round(r * 0.9)), count: c.loops, minSep: Math.max(3, Math.round(r * 1.3)), bias: 1 + k * 0.25, fill: 1, rand });
-    for(const o of tg) holdLoop(D.loopPoints(o.i % WC, (o.i / WC) | 0, r, rand), WC, held);
+    const tg = D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster: [...held], WC, WR, mask, S, fx, fy, ring: Math.max(2, Math.round(r * 0.9)), count: c.loops, minSep: Math.max(3, Math.round(r * 1.3)), bias: 1 + k * 0.25, fill: tune.fill, hole, loopR: r, rand });
+    for(const o of tg){ assert.ok(o.r <= r + 1e-9, 'loops only shrink'); holdLoop(D.loopPoints(o.i % WC, (o.i / WC) | 0, o.r, rand), WC, held); }
     sizes.push(held.size); let f = 0, mx = 0; for(const i of held){ if(inF(i)) f++; mx = Math.max(mx, Math.hypot(i % WC - fx, ((i / WC) | 0) - fy)); }
     cover.push(f / formN); spread.push(mx);
   });
@@ -478,18 +484,40 @@ test('dream cluster grows across cycles, for every form: outward, mostly into th
   for(let k = 1; k < spread.length; k++) assert.ok(spread[k] >= spread[k - 1], form + ' outward');
   let inside = 0; for(const i of held) if(inF(i)) inside++;
   assert.ok(inside / held.size > 0.6, form + ' mostly inside the form: ' + (inside / held.size).toFixed(2));
-  assert.ok(inside / held.size < 0.995 && cover.at(-1) < 0.9, `${form} rough, not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
+  assert.ok(cover.at(-1) < 0.9 && (inside / held.size < 0.995 || cover.at(-1) < 0.8), `${form} rough (gaps, or strays), not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
   assert.ok(cover.at(-1) > 0.35, form + ' but enough to read as one: cover ' + cover.at(-1).toFixed(2));
   assert.ok(held.size / (900 * 660) < 0.08, 'far under the 8% cap');
+  if(hole){ assert.equal([...held].filter(inHole).length, 0, form + ': the pupil is never lassoed');
+    let left = 0, right = 0; for(const i of held) if(inF(i)) (i % WC < HX ? left++ : right++);
+    assert.ok(Math.min(left, right) > 0.3 * (left + right), `${form} grows on both sides of the pupil: ${left} / ${right}`); }
   }
 });
-test('dream forms rotate: heart first for love, then leaf → eye → wave → heart; all sized alike', () => {
+test('dream eye: a wide, flat almond with an open pupil that the selection keeps clear of', () => {
+  const S = D.formSize('eye'), m = D.formMask('eye', S), h = D.formHole('eye', S);
+  let x0 = S, x1 = 0, y0 = S, y1 = 0, inPupil = 0;
+  for(let y = 0; y < S; y++) for(let x = 0; x < S; x++){ if(m[y * S + x]){ x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    if(Math.hypot(x + .5 - h.cx, y + .5 - h.cy) < h.r && m[y * S + x]) inPupil++; }
+  assert.ok((x1 - x0 + 1) / (y1 - y0 + 1) > 2.6, 'wide and flat: aspect ' + ((x1 - x0 + 1) / (y1 - y0 + 1)).toFixed(2));
+  assert.equal(inPupil, 0, 'the pupil is outside the form: no soft bias pulls into it');
+  assert.ok(h.r >= 5, 'a pupil big enough to read as a hole: r ' + h.r.toFixed(1));
+  // targets near the pupil get smaller loops that still clear it
+  const WC = 200, WR = 160, rgb = speckle(WC, WR, 5), fx = 100, fy = 80, X0 = fx - (S >> 1), Y0 = fy - (S >> 1), HX = X0 + h.cx, HY = Y0 + h.cy;
+  const held = new Set([fy * WC + fx - 12, fy * WC + fx + 12]);
+  for(let seed = 1; seed < 20; seed++){
+    const tg = D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster: [...held], WC, WR, mask: m, S, fx, fy, ring: 5, count: 4, hole: h, loopR: 5, rand: H.mulberry32(seed) });
+    for(const o of tg){ const d = Math.hypot(o.i % WC + .5 - HX, ((o.i / WC) | 0) + .5 - HY);
+      assert.ok(d - 1.25 * o.r - 0.5 >= h.r, `loop around ${o.i} (r ${o.r.toFixed(2)}, ${d.toFixed(1)} from the pupil) clears it`); }
+  }
+});
+test('dream forms rotate: heart first for love, then leaf → wave → heart (the eye is out); all sized alike', () => {
   assert.equal(D.nextForm({ theme: 'love' }), 'heart', 'first visit on love: a heart');
   assert.equal(D.nextForm({ theme: 'Love' }), 'heart');
   const seq = []; let last = null; for(let k = 0; k < 6; k++){ last = D.nextForm({ last, theme: 'love' }); seq.push(last); }
-  assert.deepEqual(seq, ['heart', 'leaf', 'eye', 'wave', 'heart', 'leaf'], 'later plays and Dream again rotate');
+  assert.deepEqual(seq, ['heart', 'leaf', 'wave', 'heart', 'leaf', 'wave'], 'later plays and Dream again rotate');
+  assert.equal(D.nextForm({ last: 'eye', theme: 'love' }), 'wave', 'an old eye in storage moves on');
+  assert.deepEqual(D.ROTATION, ['heart', 'leaf', 'wave']); assert.ok(D.FORMS.includes('eye'), 'the eye is still drawable');
   assert.equal(D.nextForm({ last: 'wave', theme: 'sea' }), 'heart', 'rotation is the same on any theme');
-  assert.ok(D.FORMS.includes(D.nextForm({ theme: 'sea' })));
+  assert.ok(D.ROTATION.includes(D.nextForm({ theme: 'sea' })));
   const n = f => { let c = 0; for(const v of D.formMask(f, D.formSize(f))) c += v; return c; };
   for(const f of D.FORMS) assert.ok(Math.abs(n(f) - n('heart')) / n('heart') < 0.06, `${f} has about as many cells as the heart: ${n(f)} vs ${n('heart')}`);
 });

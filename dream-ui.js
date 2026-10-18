@@ -149,7 +149,7 @@ function makePlan(opts={}){
   const G=D(),rnd=Math.random;
   let last=null;try{last=JSON.parse(ls.get(LS_LAST)||'null');}catch(e){}
   const theme=typeof themeNow==='function'?themeNow():'';
-  // heart first for love (first visit); later plays and "Dream again" rotate heart → leaf → eye → wave
+  // heart first for love (first visit); later plays and "Dream again" rotate heart → leaf → wave
   const form=(opts.form&&G.FORMS.includes(opts.form))?opts.form:G.nextForm({last:last&&last.form,theme});   // opts.form: tests only
   const S=G.formSize(form);
   const hue=hueCache[theme]!=null?hueCache[theme]:(hueCache[theme]=G.themeFamilyHue({theme,rgb:cellRGB,WT}));
@@ -166,12 +166,19 @@ function makePlan(opts={}){
   // first picks: a few scattered red-ish pixels near the form's centre, in view
   const cw=Math.floor(w/(zD*CS)),ch=Math.floor(h/(zD*CS));
   const ww=Math.max(6,Math.min(cw-6,16)),wh=Math.max(6,Math.min(Math.floor(ch*0.45),16));
-  const pk=G.pickScattered({rgb:cellRGB,WC,x0:reg.fx-(ww>>1),y0:reg.fy-(wh>>1)+2,w:ww,h:wh,maxPicks:4,minGap:3,prefer:G.binsNear(hue)});
+  // the eye's pupil stays open: no lasso ever reaches it (formHole), loops near it shrink
+  const tune=G.formTuning(form),hb=G.formHole(form,S),hole=hb?{cx:hb.cx,cy:hb.cy,r:hb.r}:null;
+  const HX=reg.fx-(S>>1)+(hole?hole.cx:0),HY=reg.fy-(S>>1)+(hole?hole.cy:0);
+  const pickR=1.35,exclude=hole?(i=>Math.hypot(i%WC+.5-HX,((i/WC)|0)+.5-HY)<hole.r+1.25*pickR+0.75):null;
+  const pk={picks:[],hue:-1,colour:[0,0,0]};
+  for(const q of tune.starts){const sx=Math.round(reg.fx+q.dx*S),sy=Math.round(reg.fy+q.dy*S);
+    const qw=q.win||ww,qh=q.win||wh,pq=G.pickScattered({rgb:cellRGB,WC,x0:sx-(qw>>1),y0:sy-(qh>>1)+(q.win?0:2),w:qw,h:qh,maxPicks:q.n,minGap:3,prefer:G.binsNear(hue),exclude});
+    pk.picks.push(...pq.picks);if(pk.hue<0){pk.hue=pq.hue;pk.colour=pq.colour;}}
   const tl=G.dreamTimeline(RM);
   // strokes: every lasso and every Evolve press, in order, with its time slot
   const strokes=[];
   const np=pk.picks.length,pd=(tl.pick[1]-tl.pick[0])/Math.max(1,np);
-  pk.picks.forEach((p,q)=>strokes.push({kind:'loop',phase:'pick',t0:tl.pick[0]+q*pd,t1:tl.pick[0]+(q+1)*pd,centre:p,r:1.35}));
+  pk.picks.forEach((p,q)=>strokes.push({kind:'loop',phase:'pick',t0:tl.pick[0]+q*pd,t1:tl.pick[0]+(q+1)*pd,centre:p,r:pickR}));
   const nC=tl.cycles.length;
   tl.cycles.forEach((c,k)=>{
     const L=(c.loopEnd-c.t0)/c.loops,u=nC>1?k/(nC-1):1;
@@ -180,7 +187,7 @@ function makePlan(opts={}){
     for(let j=0;j<c.loops;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r:Math.max(1.4,rPx/(zk*CS)),centre:null});
     strokes.push({kind:'evo',cycle:k,t0:c.loopEnd,t1:c.press});
   });
-  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,picks:pk.picks,pickBin:pk.hue,colour:pk.colour,zD,zC,zF,fit:fv,tl,strokes,si:0,
+  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,pickBin:pk.hue,colour:pk.colour,zD,zC,zF,fit:fv,tl,strokes,si:0,
     cyc:[],ptr:null,pressUntil:-1,frozen:false,genMs:[],lassosApplied:0,evolves:0,
     caps:G.COPY.dream.map(c=>typeof c==='function'?c(form):c),
     pauseAt:Array.isArray(opts.pauseAt)?opts.pauseAt.slice().sort((a,b)=>a-b):null};   // opts.pauseAt: tests only
@@ -235,17 +242,18 @@ function formStats(cl){
   const P=plan,S=P.S,X0=P.fx-(S>>1),Y0=P.fy-(S>>1);let inF=0,red=0;
   for(const i of cl){const x=i%WC-X0,y=((i/WC)|0)-Y0;if(x>=0&&y>=0&&x<S&&y<S&&P.mask[y*S+x])inF++;}
   let formN=0;for(let y=0;y<S;y++)for(let x=0;x<S;x++){if(!P.mask[y*S+x])continue;formN++;const [r,g,b]=cellRGB((Y0+y)*WC+X0+x);if(D().familyScore(r,g,b,P.hue)>0.25)red++;}
-  return{held:cl.length,inForm:inF,outForm:cl.length-inF,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
+  let inHole=0;if(P.hole)for(const i of cl)if(Math.hypot(i%WC+.5-P.HX,((i/WC)|0)+.5-P.HY)<P.hole.r)inHole++;
+  return{held:cl.length,inForm:inF,outForm:cl.length-inF,inHole,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
 }
 function cycleTargets(k){
   const P=plan;if(P.cyc[k])return P.cyc[k];
   const cl=dreamCluster(),c=P.tl.cycles[k],st=P.strokes.filter(s=>s.cycle===k&&s.kind==='loop');
   const r=st.length?st[0].r:2;
   const tg=D().chooseCycleTargets({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:cl.length?cl:P.picks,WC,WR,mask:P.mask,S:P.S,fx:P.fx,fy:P.fy,
-    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.0,hue:P.hue});
+    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:P.tune.fill,hue:P.hue,hole:P.hole,loopR:r});
   P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:tg.map(o=>o.i),targetRed:+(tg.reduce((s,o)=>s+o.red,0)/Math.max(1,tg.length)).toFixed(3),
     targetsInForm:tg.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};
-  tg.forEach((o,j)=>{if(st[j])st[j].centre=o.i;});
+  tg.forEach((o,j)=>{if(st[j]){st[j].centre=o.i;if(o.r)st[j].r=o.r;}});   // near the pupil a loop is smaller
   return P.cyc[k];
 }
 // What is held glows: each REAL held cell of the dream, lit in its own
