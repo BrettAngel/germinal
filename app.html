@@ -1455,6 +1455,7 @@ function scoreGeneration(){
     cumulative:userScore,precision:Math.round(prec*100),
     survivalRate:Math.round(survivalRate*100)});
 
+  if(window.DREAM&&DREAM.playing)return;   // PROTOTYPE: counters frozen at their pre-vision values while the vision plays
   // Update HUD
   const aEl=document.getElementById('hudA');
   aEl.textContent=userScore.toLocaleString();
@@ -2062,6 +2063,7 @@ function renderOvl(){
 }
 
 function refreshAffinityHud(){
+  if(window.DREAM&&DREAM.playing)return;   // PROTOTYPE: counters frozen at their pre-vision values while the vision plays
   const aEl=document.getElementById('hudA');
   aEl.textContent=userScore.toLocaleString();
   aEl.className='v'+(userScore>0?' positive':userScore<0?' negative':'');
@@ -2080,6 +2082,7 @@ function beginUserEra(){
   lsSet('germinal_genesis_seen','1');
 }
 function updateStats(){
+  if(window.DREAM&&DREAM.playing)return;   // PROTOTYPE: counters frozen at their pre-vision values while the vision plays
   let sc=0,s2=0,s3=0;for(let i=0;i<cells.length;i++){const v=cells[i].s;if(v>0){sc++;if(v===2)s2++;else if(v===3)s3++;}}   // PROTOTYPE (perf): one pass, same counts
   document.getElementById('hudG').textContent=generation.toLocaleString();
   const hg=document.getElementById('hsGen');

@@ -459,8 +459,9 @@ test('dream selection: real unheld cells next to the held cluster, red-ish, soft
   assert.ok(redSum / n > 2 * all / (40 * 400), `picked cells are red-ish: ${(redSum / n).toFixed(2)} vs local mean ${(all / 16000).toFixed(2)}`);
   assert.ok(new Set(Array.from({ length: 5 }, (_, s) => D.chooseCycleTargets({ rgb, isHeld: i => held.has(i), cluster, WC, WR, mask, S, fx, fy, rand: H.mulberry32(s + 1) }).map(o => o.i).join())).size > 1, 'noise: not the same cells every time');
 });
-test('dream cluster grows across cycles: outward, mostly into the form, rough (gaps and strays)', () => {
-  const WC = 220, WR = 180, rgb = speckle(WC, WR, 11), S = 44, fx = 110, fy = 90, mask = D.formMask('heart', S), rand = H.mulberry32(4);
+test('dream cluster grows across cycles, for every form: outward, mostly into the form, rough (gaps and strays)', () => {
+  for(const form of D.FORMS){
+  const WC = 260, WR = 220, rgb = speckle(WC, WR, 11), S = D.formSize(form), fx = 130, fy = 110, mask = D.formMask(form, S), rand = H.mulberry32(4);
   const T = D.dreamTimeline(false), held = new Set();
   for(const p of [fy * WC + fx, fy * WC + fx + 4, (fy + 3) * WC + fx - 2, (fy - 3) * WC + fx + 2]) holdLoop(D.loopPoints(p % WC, (p / WC) | 0, 1.35, rand), WC, held);
   const X0 = fx - (S >> 1), Y0 = fy - (S >> 1), inF = i => { const x = i % WC - X0, y = ((i / WC) | 0) - Y0; return x >= 0 && y >= 0 && x < S && y < S && mask[y * S + x]; };
@@ -473,13 +474,51 @@ test('dream cluster grows across cycles: outward, mostly into the form, rough (g
     sizes.push(held.size); let f = 0, mx = 0; for(const i of held){ if(inF(i)) f++; mx = Math.max(mx, Math.hypot(i % WC - fx, ((i / WC) | 0) - fy)); }
     cover.push(f / formN); spread.push(mx);
   });
-  for(let k = 1; k < sizes.length; k++) assert.ok(sizes[k] > sizes[k - 1], `grows every cycle: ${sizes.join(' → ')}`);
-  for(let k = 1; k < spread.length; k++) assert.ok(spread[k] >= spread[k - 1], 'outward');
+  for(let k = 1; k < sizes.length; k++) assert.ok(sizes[k] > sizes[k - 1], `${form} grows every cycle: ${sizes.join(' → ')}`);
+  for(let k = 1; k < spread.length; k++) assert.ok(spread[k] >= spread[k - 1], form + ' outward');
   let inside = 0; for(const i of held) if(inF(i)) inside++;
-  assert.ok(inside / held.size > 0.6, 'mostly inside the form: ' + (inside / held.size).toFixed(2));
-  assert.ok(inside / held.size < 0.995 && cover.at(-1) < 0.9, `rough, not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
-  assert.ok(cover.at(-1) > 0.2, 'but enough to read as one: cover ' + cover.at(-1).toFixed(2));
+  assert.ok(inside / held.size > 0.6, form + ' mostly inside the form: ' + (inside / held.size).toFixed(2));
+  assert.ok(inside / held.size < 0.995 && cover.at(-1) < 0.9, `${form} rough, not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
+  assert.ok(cover.at(-1) > 0.35, form + ' but enough to read as one: cover ' + cover.at(-1).toFixed(2));
   assert.ok(held.size / (900 * 660) < 0.08, 'far under the 8% cap');
+  }
+});
+test('dream forms rotate: heart first for love, then leaf → eye → wave → heart; all sized alike', () => {
+  assert.equal(D.nextForm({ theme: 'love' }), 'heart', 'first visit on love: a heart');
+  assert.equal(D.nextForm({ theme: 'Love' }), 'heart');
+  const seq = []; let last = null; for(let k = 0; k < 6; k++){ last = D.nextForm({ last, theme: 'love' }); seq.push(last); }
+  assert.deepEqual(seq, ['heart', 'leaf', 'eye', 'wave', 'heart', 'leaf'], 'later plays and Dream again rotate');
+  assert.equal(D.nextForm({ last: 'wave', theme: 'sea' }), 'heart', 'rotation is the same on any theme');
+  assert.ok(D.FORMS.includes(D.nextForm({ theme: 'sea' })));
+  const n = f => { let c = 0; for(const v of D.formMask(f, D.formSize(f))) c += v; return c; };
+  for(const f of D.FORMS) assert.ok(Math.abs(n(f) - n('heart')) / n('heart') < 0.06, `${f} has about as many cells as the heart: ${n(f)} vs ${n('heart')}`);
+});
+test('dream region guard: picks a start rich in the theme family (red for love), far from the last dream', () => {
+  const WC = 900, WR = 660, r = H.mulberry32(8);
+  // dark canvas with red only in a few patches
+  const red = new Uint8Array(WC * WR); for(const [cx, cy] of [[150, 500], [700, 150], [450, 330]]) for(let y = cy - 60; y < cy + 60; y++) for(let x = cx - 60; x < cx + 60; x++) if(x >= 0 && y >= 0 && x < WC && y < WR) red[y * WC + x] = 1;
+  const rgb = i => red[i] ? [170 + (i % 50), 30, 45] : [14 + (i % 9), 12, 20];
+  let hits = 0, lucky = 0;
+  for(let k = 0; k < 30; k++){
+    const rand = H.mulberry32(100 + k), g = D.chooseDreamRegion({ rand, S: 44, WC, WR, rgb, hue: 355 });
+    const one = D.chooseRegion({ rand: H.mulberry32(100 + k), S: 84, WC, WR });
+    if(red[g.fy * WC + g.fx] || g.startFamily > 0.2) hits++;
+    if(red[one.fy * WC + one.fx]) lucky++;
+  }
+  assert.ok(hits > lucky * 2 && hits >= 10, `guarded ${hits}/30 start in red vs unguarded ${lucky}/30`);
+  const last = { fx: 450, fy: 330 }, g = D.chooseDreamRegion({ rand: r, last, S: 44, WC, WR, rgb });
+  assert.ok(Math.hypot(g.fx - last.fx, g.fy - last.fy) / WC >= 0.28 - 1e-9, 'still somewhere else than last time');
+  assert.equal(D.themeFamilyHue({ theme: 'love', rgb, WT: WC * WR }), 355);
+  const green = D.themeFamilyHue({ theme: 'forest', rgb: () => [30, 160, 50], WT: 5000 });
+  assert.ok(green > 90 && green < 150, 'other themes: the canvas\'s commonest hue ' + green);
+});
+test('dream freezes the counters: HUD writers return while the vision plays', async () => {
+  const fs = await import('node:fs'), app = fs.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const body = name => { const i = app.indexOf('function ' + name + '('); return app.slice(i, app.indexOf('\n}', i)); };
+  for(const f of ['updateStats', 'refreshAffinityHud']) assert.match(body(f).split('\n')[1], /DREAM\.playing\)return/, f + ' frozen');
+  const sg = body('scoreGeneration'); assert.ok(sg.indexOf('DREAM.playing)return') > 0 && sg.indexOf('DREAM.playing)return') < sg.indexOf("getElementById('hudA')"), 'score HUD frozen (scoring itself still runs)');
+  const ui = fs.readFileSync(new URL('../dream-ui.js', import.meta.url), 'utf8');
+  assert.match(ui, /playing=false[\s\S]*updateStats\(\);refreshAffinityHud\(\);/, 'live again after the vision');
 });
 test('dream uses the real mechanics: applyLasso + nextGen, no stored image or mask reveal', async () => {
   const fs = await import('node:fs');

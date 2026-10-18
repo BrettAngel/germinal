@@ -143,23 +143,30 @@ function sizeCanvas(){const dpr=Math.min(2,window.devicePixelRatio||1);const {w,
 // (applyLasso → real holds), real Evolve presses (nextGen → one engine
 // generation each). The form only softly biases WHICH neighbouring red-ish
 // cells get lassoed next; it is never painted.
-const FORM_S=44;
 const cellRGB=i=>{const c=cells[i].c;return[hex2(c,1),hex2(c,3),hex2(c,5)];};
+const hueCache={};
 function makePlan(opts={}){
   const G=D(),rnd=Math.random;
   let last=null;try{last=JSON.parse(ls.get(LS_LAST)||'null');}catch(e){}
-  const S=FORM_S;
-  const reg=G.chooseRegion({rand:rnd,last,S:S+40,WC,WR});
-  const form=(opts.form&&G.FORMS.includes(opts.form))?opts.form:'heart';   // opts.form: tests only
+  const theme=typeof themeNow==='function'?themeNow():'';
+  // heart first for love (first visit); later plays and "Dream again" rotate heart → leaf → eye → wave
+  const form=(opts.form&&G.FORMS.includes(opts.form))?opts.form:G.nextForm({last:last&&last.form,theme});   // opts.form: tests only
+  const S=G.formSize(form);
+  const hue=hueCache[theme]!=null?hueCache[theme]:(hueCache[theme]=G.themeFamilyHue({theme,rgb:cellRGB,WT}));
+  // guard: of a few regions far from the last dream, the one with the most family-coloured cells near the start
+  const reg=G.chooseDreamRegion({rand:rnd,last,S,WC,WR,rgb:cellRGB,hue});
   ls.set(LS_LAST,JSON.stringify({fx:reg.fx,fy:reg.fy,form}));
   const mask=G.formMask(form,S);
   const {w,h}=vpSize();const zD=Math.min(ZMAX,18/CS),fv=fitView();
   const zF=Math.max(fv.z*1.5,Math.min(w,h*0.62)*0.5/(S*CS));     // step back: the form ~half the view
   const zC=Math.min(zD,zF*1.9);                                    // cycles end here (zooming out as it grows)
+  // loop sizes follow the heart's scale for every form, so each form gets about as many holds (bigger
+  // boxes zoom out further; at their own zoom the loops would swamp the form into a blob)
+  const zC44=Math.min(zD,Math.max(fv.z*1.5,Math.min(w,h*0.62)*0.5/(44*CS))*1.9);
   // first picks: a few scattered red-ish pixels near the form's centre, in view
   const cw=Math.floor(w/(zD*CS)),ch=Math.floor(h/(zD*CS));
   const ww=Math.max(6,Math.min(cw-6,16)),wh=Math.max(6,Math.min(Math.floor(ch*0.45),16));
-  const pk=G.pickScattered({rgb:cellRGB,WC,x0:reg.fx-(ww>>1),y0:reg.fy-(wh>>1)+2,w:ww,h:wh,maxPicks:4,minGap:3,prefer:G.RED_BINS});
+  const pk=G.pickScattered({rgb:cellRGB,WC,x0:reg.fx-(ww>>1),y0:reg.fy-(wh>>1)+2,w:ww,h:wh,maxPicks:4,minGap:3,prefer:G.binsNear(hue)});
   const tl=G.dreamTimeline(RM);
   // strokes: every lasso and every Evolve press, in order, with its time slot
   const strokes=[];
@@ -168,12 +175,12 @@ function makePlan(opts={}){
   const nC=tl.cycles.length;
   tl.cycles.forEach((c,k)=>{
     const L=(c.loopEnd-c.t0)/c.loops,u=nC>1?k/(nC-1):1;
-    const zk=Math.exp(Math.log(zD)+(Math.log(zC)-Math.log(zD))*ease(u));
+    const zk=Math.exp(Math.log(zD)+(Math.log(zC44)-Math.log(zD))*ease(u));
     const rPx=26+u*16;                                             // loops ~26→42 screen px across the cycles
     for(let j=0;j<c.loops;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r:Math.max(1.4,rPx/(zk*CS)),centre:null});
     strokes.push({kind:'evo',cycle:k,t0:c.loopEnd,t1:c.press});
   });
-  return{S,fx:reg.fx,fy:reg.fy,form,mask,picks:pk.picks,hue:pk.hue,colour:pk.colour,zD,zC,zF,fit:fv,tl,strokes,si:0,
+  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,picks:pk.picks,pickBin:pk.hue,colour:pk.colour,zD,zC,zF,fit:fv,tl,strokes,si:0,
     cyc:[],ptr:null,pressUntil:-1,frozen:false,genMs:[],lassosApplied:0,evolves:0,
     caps:G.COPY.dream.map(c=>typeof c==='function'?c(form):c),
     pauseAt:Array.isArray(opts.pauseAt)?opts.pauseAt.slice().sort((a,b)=>a-b):null};   // opts.pauseAt: tests only
@@ -227,7 +234,7 @@ function dreamCluster(){
 function formStats(cl){
   const P=plan,S=P.S,X0=P.fx-(S>>1),Y0=P.fy-(S>>1);let inF=0,red=0;
   for(const i of cl){const x=i%WC-X0,y=((i/WC)|0)-Y0;if(x>=0&&y>=0&&x<S&&y<S&&P.mask[y*S+x])inF++;}
-  let formN=0;for(let y=0;y<S;y++)for(let x=0;x<S;x++){if(!P.mask[y*S+x])continue;formN++;const [r,g,b]=cellRGB((Y0+y)*WC+X0+x);if(D().redness(r,g,b)>0.25)red++;}
+  let formN=0;for(let y=0;y<S;y++)for(let x=0;x<S;x++){if(!P.mask[y*S+x])continue;formN++;const [r,g,b]=cellRGB((Y0+y)*WC+X0+x);if(D().familyScore(r,g,b,P.hue)>0.25)red++;}
   return{held:cl.length,inForm:inF,outForm:cl.length-inF,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
 }
 function cycleTargets(k){
@@ -235,7 +242,7 @@ function cycleTargets(k){
   const cl=dreamCluster(),c=P.tl.cycles[k],st=P.strokes.filter(s=>s.cycle===k&&s.kind==='loop');
   const r=st.length?st[0].r:2;
   const tg=D().chooseCycleTargets({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:cl.length?cl:P.picks,WC,WR,mask:P.mask,S:P.S,fx:P.fx,fy:P.fy,
-    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.0});
+    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.0,hue:P.hue});
   P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:tg.map(o=>o.i),targetRed:+(tg.reduce((s,o)=>s+o.red,0)/Math.max(1,tg.length)).toFixed(3),
     targetsInForm:tg.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};
   tg.forEach((o,j)=>{if(st[j])st[j].centre=o.i;});
@@ -386,7 +393,7 @@ function play(opts={}){
   if(opts.replay){rec.replays++;}
   if(rec.dream==='none')rec.dream='playing';
   const T=plan.tl;
-  window.__dreamLast={playing:true,mode:'engine',usedEngine:true,maskReveal:false,form:plan.form,fx:plan.fx,fy:plan.fy,picks:plan.picks.length,hue:plan.hue,colour:plan.colour,
+  window.__dreamLast={playing:true,mode:'engine',usedEngine:true,maskReveal:false,form:plan.form,S:plan.S,hue:plan.hue,region:plan.region,fx:plan.fx,fy:plan.fy,picks:plan.picks.length,pickBin:plan.pickBin,colour:plan.colour,
     reducedMotion:RM,sumBefore,genBefore:generation,
     timeline:{picks:[+T.pick[0].toFixed(2),+T.pick[1].toFixed(2)],cycles:T.cycles.map(c=>+c.dur.toFixed(2)),loops:T.cycles.map(c=>c.loops),
       zout:[+T.zout[0].toFixed(2),+T.zout[1].toFixed(2)],fade:[+T.fade[0].toFixed(2),+T.fade[1].toFixed(2)],end:+T.end.toFixed(2)},cycles:[]};
@@ -404,6 +411,7 @@ function end(reason,restoreView){
   dw.style.display='none';wctx.clearRect(0,0,dw.width,dw.height);
   const et=evoTarget();if(et.el)et.el.classList.remove('dream-press');
   sizeCanvas();dctx.clearRect(0,0,dc.width,dc.height);ui.classList.remove('on');document.body.classList.remove('dreaming');
+  updateStats();refreshAffinityHud();   // counters were frozen during the vision: live again (restored values)
   if(restoreView){const f=fitView();setView(f.z,f.px,f.py);} else if(typeof clamp==='function'){clamp();applyXform();}
   let sumAfter=D().checksumCells(cells),restored=false;
   if(sumAfter!==sumBefore){D().restoreCells(cells,S0.cells);restored=true;renderAll();sumAfter=D().checksumCells(cells);console.warn('dream: canvas restored from snapshot (fallback)');}
