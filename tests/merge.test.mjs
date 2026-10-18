@@ -441,3 +441,34 @@ test('dream growth: world-grid blocks 16→8→4→2→1, sampled canvas colours
   // refinement keeps colour: a sub-block sharing its parent's origin keeps the parent's colour
   assert.deepEqual(D.blockColour(pal, 288, 128), D.blockColour(pal, 288, 128));
 });
+
+test('dream growth: every refinement is more defined — saturation and contrast vs the canvas rise 16→1 (real warm speckle)', () => {
+  const c = H.hintCanvas('love', 'noise'), S = 340, L = D.GROW_LEVELS;
+  for(const [form, X0, Y0] of [['heart', 280, 160], ['leaf', 40, 30], ['eye', 500, 300], ['wave', 200, 250]]){
+    const orig = new Uint8Array(S * S * 3);
+    for(let y = 0; y < S; y++) for(let x = 0; x < S; x++){ const i = (Y0 + y) * 900 + X0 + x, k = (y * S + x) * 3; orig[k] = c.R[i]; orig[k + 1] = c.G[i]; orig[k + 2] = c.B[i]; }
+    const fams = new Map(); for(let i = 0; i < S * S; i++){ const h = D.hueBin(orig[i * 3], orig[i * 3 + 1], orig[i * 3 + 2]); if(h >= 0 && !fams.has(h)) fams.set(h, [orig[i * 3], orig[i * 3 + 1], orig[i * 3 + 2]]); }
+    assert.ok(fams.size >= 2);
+    for(const col of fams.values()){
+    const pal = D.familyPalette(orig, S, col), mask = D.formMask(form, S);
+    const rows = L.map((b, k) => { const on = D.blockForm(mask, S, X0, Y0, b, { jitter: b <= 2 ? 4 - b : 0 }), fl = v => v - ((v % b) + b) % b;
+      return D.formContrast(on, i => D.levelColour(pal, fl(X0 + i % S), fl(Y0 + ((i / S) | 0)), k, L.length), orig, S); });
+    for(let k = 1; k < rows.length; k++){
+      assert.ok(rows[k].satIn > rows[k - 1].satIn || rows[k - 1].satIn >= 0.999, `${form} saturation rises at ${L[k]}: ${rows[k - 1].satIn} → ${rows[k].satIn}`);
+      assert.ok(rows[k].contrast > rows[k - 1].contrast, `${form} brightness contrast rises at ${L[k]}`);
+      assert.ok(rows[k].lumContrast > rows[k - 1].lumContrast, `${form} luminance contrast rises at ${L[k]}`);
+    }
+    assert.ok(rows[0].contrast > 1 && rows[4].satIn > rows[4].satOut, form + ' the form stands out');
+    // alive, not flat: the 1-cell level keeps per-cell variation
+    const vs = new Set(); for(let x = 0; x < 200; x++){ const v = D.levelColour(pal, X0 + x, Y0 + 7, 4, 5); vs.add(Math.max(...v)); }
+    assert.ok(vs.size > 10, form + ' per-cell variation ' + vs.size);
+    }
+  }
+});
+test('dream growth: the fine edge is dithered per cell, not a smooth silhouette', () => {
+  const S = 200, mask = D.formMask('heart', S);
+  const exact = D.blockForm(mask, S, 10, 10, 1), dith = D.blockForm(mask, S, 10, 10, 1, { jitter: 2 });
+  let diff = 0, onN = 0; for(let i = 0; i < S * S; i++){ if(exact[i] !== dith[i]) diff++; if(exact[i]) onN++; }
+  assert.ok(diff > 50, 'boundary cells differ: ' + diff);
+  assert.ok(diff / onN < 0.08, 'but only at the edge: ' + (diff / onN).toFixed(3));
+});
