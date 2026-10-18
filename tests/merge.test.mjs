@@ -65,16 +65,20 @@ test('continuation: the whole incoming canvas (held + unheld) is taken', () => {
   assert.equal(r.mode, 'continue'); assert.deepEqual(r.cells, inc);
 });
 
-test('release: ~3% of holds nobody re-chose loosen; chosen holds never do', () => {
+test('release: ~0.75% per save of holds nobody re-chose loosen (sim timescale); chosen holds never do', () => {
+  assert.equal(V.PARAMS.release, 0.0075);
   const mother = canvas(cell(9, 9, 9, true));
   const inc = canvas(cell(9, 9, 9, true));
   const chosen = new Uint8Array(WT); for(let i = 0; i < 1000; i++) chosen[i] = 1;
   let s = 1; const rand = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  const r = M.mergeIntoMother({ mother, incoming: inc, chosen, release: 0.03, rand });
+  const r = M.mergeIntoMother({ mother, incoming: inc, chosen, release: V.PARAMS.release, rand });
   const rate = r.stats.released / (WT - 1000);
-  assert.ok(rate > 0.027 && rate < 0.033, 'rate ' + rate);
+  assert.ok(rate > 0.0065 && rate < 0.0085, 'rate ' + rate);
   for(let i = 0; i < 1000; i++) assert.ok(r.cells[i] & HELD);
-  assert.equal(r.cells[5000] & 0x7FFF, cell(9, 9, 9, false), 'colour unchanged when released');
+  let freed = -1; for(let i = 1000; i < WT; i++) if(!(r.cells[i] & HELD)){ freed = i; break; }
+  assert.equal(r.cells[freed], cell(9, 9, 9, false), 'colour unchanged when released');
+  // An unrefreshed hold survives ~1/0.0075 ≈ 133 saves on average (sim: ~130 contributions).
+  assert.ok(Math.abs(1 / V.PARAMS.release - 133) < 1);
 });
 
 test('colour rounding: nearest, full range, stable over repeated save/load', () => {
