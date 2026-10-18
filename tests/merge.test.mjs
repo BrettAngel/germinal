@@ -250,16 +250,35 @@ for(const continuation of [false, true]){
   });
 }
 
-test('erase this session (chosen + level 0) frees the cell in both paths; SM2 carries it', () => {
-  for(const continuation of [false, true]){
-    const live = liveWithReleased(), inc = { cells: Uint16Array.from(live.cells), level: Uint8Array.from(live.level), loose: Z() }, ch = Z();
-    for(let i = 0; i < 10; i++){ inc.cells[i] &= 0x7FFF; inc.level[i] = 0; ch[i] = 1; }
-    const d = M.decodeStab(M.encodeStab(inc.level, inc.loose, ch));
-    const r = M.mergeIntoMother({ mother: live, incoming: { cells: inc.cells, level: d.level, loose: d.loose }, chosen: d.chosen, continuation });
-    for(let i = 0; i < 10; i++) assert.equal(r.level[i], 0);
-    for(let i = 10; i < 100; i++) assert.equal(r.level[i], 2);
-    assert.equal(r.stats.erased, 10);
+test('erase this session (chosen + level 0): frees the cell on a direct continuation; SM2 carries it', () => {
+  const live = liveWithReleased(), inc = { cells: Uint16Array.from(live.cells), level: Uint8Array.from(live.level), loose: Z() }, ch = Z();
+  for(let i = 0; i < 10; i++){ inc.cells[i] &= 0x7FFF; inc.level[i] = 0; ch[i] = 1; }
+  const d = M.decodeStab(M.encodeStab(inc.level, inc.loose, ch));
+  const r = M.mergeIntoMother({ mother: live, incoming: { cells: inc.cells, level: d.level, loose: d.loose }, chosen: d.chosen, continuation: true });
+  for(let i = 0; i < 10; i++) assert.equal(r.level[i], 0);
+  for(let i = 10; i < 100; i++) assert.equal(r.level[i], 2);
+  assert.equal(r.stats.erased, 10);
+});
+
+test('regression: a STALE erase cannot free a hold re-made after the visitor loaded', () => {
+  // visitor loaded gen N where cells 0..9 were held (level 1); erased them locally.
+  const loaded = { cells: canvas(cell(4, 4, 4, false)), level: Z(), loose: Z() };
+  for(let i = 0; i < 10; i++){ loaded.cells[i] = cell(20, 0, 0, true); loaded.level[i] = 1; }
+  const inc = { cells: Uint16Array.from(loaded.cells), level: Uint8Array.from(loaded.level), loose: Z() }, ch = Z();
+  for(let i = 0; i < 10; i++){ inc.cells[i] &= 0x7FFF; inc.level[i] = 0; ch[i] = 1; }
+  // meanwhile someone else re-made / refined those holds: live is now level 2, a new colour, loose on some
+  const live = { cells: Uint16Array.from(loaded.cells), level: Uint8Array.from(loaded.level), loose: Z() };
+  for(let i = 0; i < 10; i++){ live.cells[i] = cell(0, 0, 31, true); live.level[i] = 2; live.loose[i] = i & 1; }
+  const r = M.mergeIntoMother({ mother: live, incoming: inc, chosen: ch, continuation: false });
+  for(let i = 0; i < 10; i++){
+    assert.equal(r.level[i], 2, 'live hold survives the stale erase'); assert.equal(r.loose[i], i & 1);
+    assert.equal(r.cells[i], cell(0, 0, 31, true), 'live colour kept');
   }
+  assert.equal(r.stats.erased, 0); assert.equal(r.stats.eraseIgnored, 10);
+  // a stale erase of a cell that is free live is a no-op too
+  const live2 = { cells: canvas(cell(4, 4, 4, false)), level: Z(), loose: Z() };
+  const r2 = M.mergeIntoMother({ mother: live2, incoming: inc, chosen: ch, continuation: false });
+  assert.equal(r2.cells[0], live2.cells[0]);
 });
 
 test('release only touches live holds the visitor did not choose; chosen erase is not "released"', () => {
