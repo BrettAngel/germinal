@@ -347,7 +347,11 @@ function frame(now){
   const C0=T.cycles[Math.min(1,T.cycles.length-1)].t0,C1=T.cycles[T.cycles.length-1].t1;
   // the step back centres on the form as it actually grew (its held cells' box)
   if(t>=T.zout[0]&&!P.fc){const cl=dreamCluster();let x0=1e9,y0=1e9,x1=-1,y1=-1;for(const i of cl){const x=i%WC,y=(i/WC)|0;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}
-    P.fc=x1>=0?{x:((x0+x1)/2+.5)*CS,y:((y0+y1)/2+.5)*CS}:{x:fwx,y:fwy};}
+    P.fc=x1>=0?{x:((x0+x1)/2+.5)*CS,y:((y0+y1)/2+.5)*CS}:{x:fwx,y:fwy};
+    // framing only: the step back ends where the grown form fills ~85% of the width / ~60% of the height
+    // (between 1.5× the fit view and the cycles' last zoom, so it is still a step back)
+    if(x1>=0){const bw=(x1-x0+1)*CS,bh=(y1-y0+1)*CS,zf=Math.min(w*0.85/bw,h*0.6/bh);
+      P.zF=Math.max(P.fit.z*1.5,Math.min(P.zC,zf));window.__dreamLast.zF=+P.zF.toFixed(2);}}
   if(P.fc){const e=RM?1:ease(ph(t,T.zout));fwx+=(P.fc.x-fwx)*e;fwy+=(P.fc.y-fwy)*e;}
   let z;
   if(t<T.zin[1]&&!RM){
