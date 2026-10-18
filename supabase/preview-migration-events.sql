@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS public.dream_events (
   hint            TEXT    NOT NULL CHECK (char_length(hint) <= 24),
   kiosk           BOOLEAN NOT NULL DEFAULT false,
   reduced_motion  BOOLEAN NOT NULL DEFAULT false,
-  returning       BOOLEAN NOT NULL DEFAULT false,
+  is_returning    BOOLEAN NOT NULL DEFAULT false,         -- ("returning" is reserved in Postgres)
   dream           TEXT    NOT NULL CHECK (dream IN ('none','playing','completed','skipped','interrupted','preempted')),
   dream_ms        INTEGER CHECK (dream_ms BETWEEN 0 AND 600000),
   replays         SMALLINT NOT NULL DEFAULT 0 CHECK (replays BETWEEN 0 AND 1000),

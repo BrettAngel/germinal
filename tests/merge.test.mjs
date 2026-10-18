@@ -379,7 +379,7 @@ test('dream-event: whitelists fields, drops anything personal', () => {
   const r = validateDreamEvent({ v:1, variant:'B', hint:'noise', dream:'completed', dreamMs:11600, lassos:3,
     usedTechnique:true, evolved:true, ip:'1.2.3.4', contributorId:'abc', ua:'x' });
   assert.ok(r.ok);
-  assert.deepEqual(Object.keys(r.row).sort(), ['dream','dream_ms','evolved','first_lasso_ms','hint','kiosk','lasso_within_30s','lassos','reduced_motion','replays','returning','shared','used_technique','v','variant'].sort());
+  assert.deepEqual(Object.keys(r.row).sort(), ['dream','dream_ms','evolved','first_lasso_ms','hint','kiosk','lasso_within_30s','lassos','reduced_motion','replays','is_returning','shared','used_technique','v','variant'].sort());
   assert.equal(r.row.used_technique, true);
   assert.equal(validateDreamEvent({ variant:'b', hint:'<script>', dream:'completed' }).ok, false);
   assert.equal(validateDreamEvent({ variant:'b', hint:'noise', dream:'hacked' }).ok, false);
