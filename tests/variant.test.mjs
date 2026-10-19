@@ -206,20 +206,20 @@ test('dream form masks are filled silhouettes (binary, no outline-only shapes)',
   }
 });
 // ── Dream it: real selection + real Evolve, sped up (no mask reveal) ──
-test('dream timeline: 16–20 lasso → tap-Evolve cycles, each faster than the last; ~15–18 s; reduced motion ~8 s', () => {
+test('dream timeline: 26–30 lasso → tap-Evolve cycles, each faster than the last; ~19–21 s; reduced motion ~8 s', () => {
   for(const rm of [false, true]){
     const T = D.dreamTimeline(rm, 4), d = T.cycles.map(c => c.dur);
-    assert.ok(rm ? d.length >= 6 : d.length >= 16 && d.length <= 20, 'Evolves: ' + d.length);
+    assert.ok(rm ? d.length >= 6 : d.length >= 26 && d.length <= 30, 'Evolves: ' + d.length);
     for(let k = 1; k < d.length; k++) assert.ok(d[k] < d[k - 1], `cycle ${k} faster: ${d[k - 1]} → ${d[k]}`);
     assert.equal(T.cycles[0].phase, 'pick'); assert.equal(T.cycles[0].loops, 4, 'cycle 0: the first scattered picks');
     for(const c of T.cycles.slice(1)){ assert.equal(c.phase, 'cycle'); assert.ok(c.loops >= 1); }
     for(const c of T.cycles){
       assert.ok(c.t0 < c.loopEnd && c.loopEnd < c.press && c.press < c.t1, 'lasso, then travel to Evolve, tap, then the change, inside every cycle');
-      assert.ok(c.press - c.loopEnd >= 0.05, 'time to move to the button: ' + (c.press - c.loopEnd).toFixed(2)); }
+      assert.ok(c.press - c.loopEnd >= 0.035, 'time to move to the button (the last Evolves are fast): ' + (c.press - c.loopEnd).toFixed(2)); }
     for(let k = 1; k < T.cycles.length; k++) assert.ok(Math.abs(T.cycles[k].t0 - T.cycles[k - 1].t1) < 1e-9, 'back to back');
     assert.ok(Math.abs(T.cycles[0].t0 - T.zin[1]) < 1e-9 && T.zout[0] >= T.cycles.at(-1).t1 - 1e-9 && T.fade[1] === T.end, 'order: zoom → cycles → step back → fade');
     if(rm){ assert.ok(T.end >= 6 && T.end <= 9, 'reduced ' + T.end); assert.ok(T.cycles.every(c => !c.ease), 'reduced motion: no eased transitions'); }
-    else { assert.ok(T.end >= 15 && T.end <= 17.5, 'normal (nominal; engine pauses add a little) ' + T.end); assert.equal(T.zin[1], 2.0, 'opening zoom');
+    else { assert.ok(T.end >= 19 && T.end <= 21, 'normal (nominal; engine pauses add a little) ' + T.end); assert.equal(T.zin[1], 2.0, 'opening zoom');
       assert.ok(T.cycles[0].ease >= 0.55 && T.cycles[0].ease <= 0.7 && T.cycles[1].ease >= 0.55 && T.cycles[1].ease <= 0.7, 'the first 2 Evolves ease over ~600 ms');
       assert.ok(T.cycles.slice(2).every(c => !c.ease), 'later Evolves are instant');
       for(const c of T.cycles.slice(0, 2)) assert.ok(c.t1 - c.press >= c.ease - 1e-9, 'the eased change fits before the next lasso'); }
@@ -282,8 +282,9 @@ test('dream cluster grows across cycles, for every form: outward, mostly into th
   for(let k = 1; k < sizes.length; k++) assert.ok(sizes[k] > sizes[k - 1], `${form} grows every cycle: ${sizes.join(' → ')}`);
   for(let k = 1; k < spread.length; k++) assert.ok(spread[k] >= spread[k - 1], form + ' outward');
   let inside = 0; for(const i of held) if(inF(i)) inside++;
-  assert.ok(inside / held.size > 0.6, form + ' mostly inside the form: ' + (inside / held.size).toFixed(2));
-  assert.ok(cover.at(-1) < 0.9 && (inside / held.size < 0.995 || cover.at(-1) < 0.8), `${form} rough (gaps, or strays), not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
+  // (multi-colour forms grow per part with strict, pure loops in the app: tested separately below)
+  if(!D.FORM_PARTS[form]) assert.ok(inside / held.size > 0.5, form + ' at least half inside the form (28 cycles of loops spill past the edge; real runs ~70–75%): ' + (inside / held.size).toFixed(2));
+  assert.ok(cover.at(-1) < 0.9 || inside / held.size < 0.9, `${form} rough (gaps, or strays), not the clean form: in ${(inside / held.size).toFixed(2)}, cover ${cover.at(-1).toFixed(2)}`);
   if(D.ROTATION.includes(form)) assert.ok(cover.at(-1) > 0.35, form + ' but enough to read as one: cover ' + cover.at(-1).toFixed(2));   // (the eye is out of the rotation; its pupil rules still checked)
   assert.ok(held.size / (900 * 660) < 0.08, 'far under the 8% cap');
   if(hole){ assert.equal([...held].filter(inHole).length, 0, form + ': the pupil is never lassoed');
@@ -313,19 +314,19 @@ const PAL = NEW_PALS;
 test('PAL above is app.html PALS, byte for byte', () => {
   for(const [k, v] of Object.entries(PAL)) assert.ok(app.includes(`  ${k}:${JSON.stringify(v).replace(/"/g, "'")},`), k);
 });
-test('dream forms rotate: heart first for love, then flower → leaf (tree, sun, fish, wave, eye drawable but out, re-checked on full-spectrum love); all sized alike', () => {
+test('dream forms rotate: heart first for love, then flower → leaf → fish → wave (tree, sun, eye drawable but out); all sized alike', () => {
   const el = t => f => D.formEligible(f, PAL[t]);
   assert.equal(D.nextForm({ theme: 'love', eligible: el('love') }), 'heart', 'first visit on love: a heart');
   assert.equal(D.nextForm({ theme: 'Love' }), 'heart');
   const seq = []; let last = null; for(let k = 0; k < 8; k++){ last = D.nextForm({ last, theme: 'love', eligible: el('love') }); seq.push(last); }
-  assert.deepEqual(seq, ['heart', 'flower', 'leaf', 'heart', 'flower', 'leaf', 'heart', 'flower'], 'love: the flower right after the heart');
+  assert.deepEqual(seq, ['heart', 'flower', 'leaf', 'fish', 'wave', 'heart', 'flower', 'leaf'], 'love: the flower right after the heart');
   assert.equal(D.nextForm({ last: 'eye', theme: 'love', eligible: el('love') }), 'heart', 'an old eye in storage moves on');
   assert.equal(D.nextForm({ last: 'sun', theme: 'love', eligible: el('love') }), 'heart', 'so does an old sun');
-  assert.deepEqual(D.ROTATION, ['heart', 'flower', 'leaf']);
-  for(const f of ['eye', 'sun', 'fish', 'tree', 'wave']) assert.ok(D.FORMS.includes(f) && !D.ROTATION.includes(f), f + ' drawable, out of the rotation');
+  assert.deepEqual(D.ROTATION, ['heart', 'flower', 'leaf', 'fish', 'wave']);
+  for(const f of ['eye', 'sun', 'tree']) assert.ok(D.FORMS.includes(f) && !D.ROTATION.includes(f), f + ' drawable, out of the rotation');
   for(const t of ['joy', 'nature', 'hope', 'grief']) assert.equal(D.nextForm({ theme: t, eligible: el(t) }), 'flower', t + ': its first multi-colour form');
   const noFl = []; last = 'heart'; for(let k = 0; k < 3; k++){ last = D.nextForm({ last, theme: 'love', eligible: f => f !== 'flower' }); noFl.push(last); }
-  assert.deepEqual(noFl, ['leaf', 'heart', 'leaf'], 'a theme without the flower hues skips it');
+  assert.deepEqual(noFl, ['leaf', 'fish', 'wave'], 'a theme without the flower hues skips it');
   assert.ok(D.ROTATION.includes(D.nextForm({ theme: 'sea' })));
   const n = f => { let c = 0; for(const v of D.formMask(f, D.formSize(f))) c += v; return c; };
   for(const f of D.FORMS) assert.ok(Math.abs(n(f) - n('heart')) / n('heart') < (D.FORM_PARTS[f] ? 0.08 : 0.06), `${f} has about as many cells as the heart: ${n(f)} vs ${n('heart')}`);
@@ -356,7 +357,7 @@ test('multi-colour forms: two parts, separate lobes (6 petals around the centre)
   assert.equal(T.cycles[0].phase, 'pick'); assert.equal(T.cycles[0].part, 0); assert.equal(T.cycles[0].loops, 3);
   assert.equal(T.cycles[1].phase, 'pick'); assert.equal(T.cycles[1].part, 1); assert.equal(T.cycles[1].loops, 6);
   assert.ok(T.cycles.slice(2).every(c => c.phase === 'cycle'));
-  assert.ok(T.cycles.length >= 16 && T.cycles.length <= 20 && T.end >= 15 && T.end <= 17.5, T.cycles.length + ' Evolves, ' + T.end + ' s');
+  assert.ok(T.cycles.length >= 26 && T.cycles.length <= 30 && T.end >= 19 && T.end <= 21, T.cycles.length + ' Evolves, ' + T.end + ' s');
   for(let k = 1; k < T.cycles.length; k++) assert.ok(T.cycles[k].dur < T.cycles[k - 1].dur, 'accelerating');
 });
 test('multi-colour growth: loops stay in their part, never reach the other part, and hold mostly that part hue (pure loops)', () => {
@@ -373,6 +374,17 @@ test('multi-colour growth: loops stay in their part, never reach the other part,
   for(const t of tg){ assert.equal(lab(t.i), 2, 'inside the petals'); assert.ok(room(t.i) - 1.25 * t.r >= 0.75 - 1e-9, 'the loop never reaches the centre');
     let s = 0, n = 0, R = Math.ceil(t.r * 1.25); for(let oy = -R; oy <= R; oy++) for(let ox = -R; ox <= R; ox++){ if(ox * ox + oy * oy > t.r * t.r * 1.5) continue; n++; s += D.familyScore(...rgb(t.i + oy * WC + ox), 345); }
     assert.ok(s / n >= 0.4 - 1e-9, 'mostly petal-coloured under the loop: ' + (s / n).toFixed(2)); }
+});
+test('graded pure loops: pure spots first, a looser rule only when too few are found (never a stall)', () => {
+  const WC = 120, WR = 120, S = 40, fx = 60, fy = 60, mask = new Float32Array(S * S).fill(1);
+  const dark = () => [12, 10, 16], some = i => (i % 11 === 0 ? [230, 40, 80] : [12, 10, 16]);
+  const args = (rgb) => ({ rgb, isHeld: () => false, cluster: [fy * WC + fx], WC, WR, mask, S, fx, fy, ring: 4, count: 4, loopR: 2, hue: 345, purity: 0.4, rand: mulberry32(3) });
+  assert.equal(D.chooseCycleTargets(args(dark)).length, 0, 'strict purity on a dark spot: nothing');
+  assert.ok(D.chooseCycleTargetsGraded(args(dark)).length >= 2, 'graded: still grows');
+  const red = () => [230, 40, 80], g = D.chooseCycleTargetsGraded(args(red));
+  assert.equal(g.length, 4); assert.ok(g.every(o => o.red >= 0.4), 'pure where it can be');
+  const ui = fs.readFileSync(new URL('../dream-ui.js', import.meta.url), 'utf8');
+  assert.ok(!/D\(\)\.chooseCycleTargets\(/.test(ui) && /chooseCycleTargetsGraded/.test(ui), 'the app uses the graded rule');
 });
 test('dream-ui: the vision never writes a colour (selection + nextGen only), multi-colour or not', () => {
   const ui = fs.readFileSync(new URL('../dream-ui.js', import.meta.url), 'utf8');

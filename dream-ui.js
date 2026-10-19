@@ -210,7 +210,7 @@ function makePlan(opts={}){
       c.sort((a,b)=>b[0]-a[0]);for(const [,i] of c){if(pk.picks.length>=3)break;if(pk.picks.every(p=>Math.max(Math.abs(p%WC-i%WC),Math.abs(((p/WC)|0)-((i/WC)|0)))>=3))pk.picks.push(i);}}
     return pk;});
   const pk={picks:pks.flatMap(p=>p.picks),hue:pks[0].hue,colour:pks[0].colour};
-  const tl=G.dreamTimeline(RM,pks.map(p=>Math.max(1,p.picks.length)),parts.length);
+  const tl=G.dreamTimeline(RM,pks.map(p=>Math.max(1,p.picks.length)),parts.length,opts.config||null);   // opts.config: evaluation only
   // strokes: every lasso and every Evolve tap, in order, with its time slot. Cycle 0 = the first
   // scattered picks; every later cycle circles new cells in the grown zone of influence. After
   // every lasso the pointer goes to Evolve and taps it.
@@ -223,7 +223,8 @@ function makePlan(opts={}){
       for(let j=0;j<c.loops;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r,centre:null});}
     strokes.push({kind:'evo',cycle:k,t0:c.loopEnd,t1:c.press,ease:RM?0:c.ease});
   });
-  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,ineligible,LB,lobeMask,purity:opts.purity||0.4,
+  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,ineligible,LB,lobeMask,purity:opts.purity||0.4,singlePure:opts.singlePure!=null?!!opts.singlePure:true,   // pure loops for every form (Oct 18 evening; opts: evaluation only)
+    
     partCells:parts.map(()=>new Set()),lobeCells:multi?LB.lobes.map(()=>new Set()):null,pickByPart:pks.map(p=>p.picks.length),pickBin:pk.hue,colour:pk.colour,zD,zC,zF,zP,fit:fv,tl,strokes,si:0,
     cyc:[],ptr:null,pressUntil:-1,tapAt:-1,taps:[],easeT:null,lit:[],frozen:false,genMs:[],lassosApplied:0,evolves:0,
     caps:G.COPY.dream.map((c,i)=>typeof c==='function'?c(form):(i===2&&multi?G.COPY.dreamMulti:c)),
@@ -300,7 +301,7 @@ function cycleTargets(k){
     const all=[];
     LBs.forEach((l,q)=>{if(!cnt[q])return;const p=P.parts[l.part];
       const seed=held[q].length?held[q]:[(Y0+Math.round(l.cy))*WC+X0+Math.round(l.cx)];   // a lobe nobody has reached yet: from its middle
-      const tq=D().chooseCycleTargets({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:seed,
+      const tq=D().chooseCycleTargetsGraded({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:seed,
         WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.2,hue:p.hue,loopR:r,strict:true,room:P.roomOf(l.part),purity:P.purity});
       tq.forEach(o=>{o.part=l.part;o.lobe=q;all.push(o);});});
     P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:all.map(o=>o.i),perLobe:cnt,targetRed:+(all.reduce((s,o)=>s+o.red,0)/Math.max(1,all.length)).toFixed(3),
@@ -308,8 +309,8 @@ function cycleTargets(k){
     all.forEach((o,j)=>{if(st[j]){st[j].centre=o.i;st[j].part=o.part;st[j].lobe=o.lobe;if(o.r)st[j].r=o.r;}});
     return P.cyc[k];
   }
-  const tg=D().chooseCycleTargets({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:cl.length?cl:P.picks,WC,WR,mask:P.mask,S:P.S,fx:P.fx,fy:P.fy,
-    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:P.tune.fill,hue:P.hue,hole:P.hole,loopR:r});
+  const tg=D().chooseCycleTargetsGraded({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:cl.length?cl:P.picks,WC,WR,mask:P.mask,S:P.S,fx:P.fx,fy:P.fy,
+    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:P.tune.fill,hue:P.hue,hole:P.hole,loopR:r,purity:P.singlePure?P.purity:0});
   P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:tg.map(o=>o.i),targetRed:+(tg.reduce((s,o)=>s+o.red,0)/Math.max(1,tg.length)).toFixed(3),
     targetsInForm:tg.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};
   tg.forEach((o,j)=>{if(st[j]){st[j].centre=o.i;if(o.r)st[j].r=o.r;}});   // near the pupil a loop is smaller
