@@ -127,7 +127,9 @@ test('dream forms: each is a visible, bounded shape; regions and forms vary', ()
   for(const f of D.FORMS){ const m = D.formMask(f, 120); let on = 0; for(const v of m) if(v > 0.5) on++;
     assert.ok(on > 120 * 120 * 0.03 && on < 120 * 120 * 0.6, f + ' coverage ' + on / 14400); }
   assert.equal(D.formWithArticle('eye'), 'an eye'); assert.equal(D.formWithArticle('heart'), 'a heart');
-  for(const f of ['flower', 'sun', 'tree', 'fish']) assert.ok(D.FORMS.includes(f) && D.FORM_PARTS[f].length === 2, f + ': a two-colour form');
+  for(const f of ['sun', 'tree', 'fish']) assert.ok(D.FORMS.includes(f) && D.FORM_PARTS[f].length === 2, f + ': a two-colour form');
+  assert.deepEqual(D.FORM_PARTS.flower.map(p => p.name), ['centre', 'petals', 'stem'], 'flower: centre, petals (alternating hues), optional stem');
+  assert.ok(D.FORM_PARTS.flower[2].optional && !D.FORM_PARTS.flower[0].optional && !D.FORM_PARTS.flower[1].optional);
   const r = mulberry32(5); let last = null, lastF = null;
   for(let k = 0; k < 20; k++){
     const g = D.chooseRegion({ rand: r, last, S: 300, WC: 900, WR: 660 });
@@ -202,7 +204,7 @@ test('dream form masks are filled silhouettes (binary, no outline-only shapes)',
     let inside = 0, interior = 0;
     for(let y = 1; y < S - 1; y++) for(let x = 1; x < S - 1; x++){ const i = y * S + x; if(!m[i]) continue; inside++;
       if(m[i - 1] && m[i + 1] && m[i - S] && m[i + S]) interior++; }
-    assert.ok(interior / inside > 0.85, f + ' is filled: interior share ' + (interior / inside).toFixed(2));
+    assert.ok(interior / inside > (f === 'flower' ? 0.75 : 0.85), f + ' is filled: interior share ' + (interior / inside).toFixed(2));
   }
 });
 // ── Dream it: real selection + real Evolve, sped up (no mask reveal) ──
@@ -334,24 +336,37 @@ test('dream forms rotate: heart first for love, then flower → leaf → fish �
 test('palette honesty: a multi-colour form is offered only when the theme palette has every part hue', () => {
   const H = (t, f) => { const p = D.resolveParts(f, PAL[t]); return p && p.map(x => x.hue); };
   // full-spectrum palettes (2026-10-18): every theme has every part hue
-  assert.deepEqual(H('love', 'flower'), [48, 345], 'love flower: yellow #ffcc00 centre, pink/red petals');
+  assert.deepEqual(H('love', 'flower'), [55, 345, 110], 'love flower: yellow centre (#ffcc00/#ff8800, not brown), pink/red petals, green stem');
+  assert.equal(D.resolveParts('flower', PAL.love)[1].hue2, 265, 'every other petal violet #8844dd');
+  for(const t of Object.keys(PAL)){ const p = D.resolveParts('flower', PAL[t]); const hs = p.map(x => x.hue).concat(p[1].hue2 != null ? [p[1].hue2] : []);
+    for(let a = 0; a < hs.length; a++) for(let b = a + 1; b < hs.length; b++){ const d = Math.abs(hs[a] - hs[b]) % 360; assert.ok(Math.min(d, 360 - d) >= 40, t + ' flower hues apart: ' + hs); } }
   assert.deepEqual(H('love', 'sun'), [48, 355]);
   assert.deepEqual(H('love', 'tree'), [25, 105], 'love now has brown #8b4513 and leaf green #55aa22'); assert.deepEqual(H('love', 'fish'), [200, 28], 'and cyan/blue');
   for(const t of Object.keys(PAL)) for(const f of ['flower', 'sun', 'tree', 'fish']) assert.ok(H(t, f), t + ' ' + f);
   // the honesty rule itself: main's old love palette (reds + yellow/orange) still gets no tree or fish
   const OLD_LOVE = ['#cc0033', '#dd1144', '#ff3366', '#ff6688', '#ff99aa', '#ffbbcc', '#ffcc00', '#ff8800', '#aa1133', '#660022'];
-  assert.equal(D.resolveParts('tree', OLD_LOVE), null); assert.equal(D.resolveParts('fish', OLD_LOVE), null); assert.deepEqual(D.resolveParts('flower', OLD_LOVE).map(p => p.hue), [48, 345]);
+  assert.equal(D.resolveParts('tree', OLD_LOVE), null); assert.equal(D.resolveParts('fish', OLD_LOVE), null); assert.deepEqual(D.resolveParts('flower', OLD_LOVE).map(p => p.hue), [55, 345], 'no green: the flower without its stem (optional part left out)');
+  assert.equal(D.resolveParts('flower', OLD_LOVE)[1].hue2, undefined, 'and no second petal hue: all petals pink/red');
   assert.equal(D.resolveParts('tree', ['#1a1a2e', '#2a2a40', '#334455', '#556677', '#778899', '#aabbcc', '#e0e8f0']), null, "main's grey grief: no tree");
   assert.ok(D.paletteHas(['hsl(200,60%,48%)'], 200) && !D.paletteHas(['hsl(200,60%,48%)'], 48), 'hash palettes (hsl) are read too');
   for(const t of Object.keys(PAL)) for(const h of [0, 48, 105, 200, 270]) if(D.paletteHas(PAL[t], h))
     assert.ok(D.paletteHues(PAL[t]).some(c => Math.min(Math.abs(c.h - h), 360 - Math.abs(c.h - h)) <= 25 && c.s >= 0.35), 'only real palette hues');
 });
-test('multi-colour forms: two parts, separate lobes (6 petals around the centre), timeline picks one colour then the other', () => {
+test('multi-colour forms: separate lobes (6 petals round the centre, a stem), gaps, timeline picks one colour then the other', () => {
   const lob = f => D.formLobes(f, D.formSize(f)).lobes;
-  const fl = lob('flower'); assert.equal(fl.filter(l => l.part === 0).length, 1, 'one centre'); assert.equal(fl.filter(l => l.part === 1).length, 6, 'six petals');
-  const S = D.formSize('flower'), c = fl.find(l => l.part === 0);
-  assert.ok(Math.hypot(c.cx - S / 2 + 0.5, c.cy - S / 2 + 0.5) < 1, 'the centre is in the middle');
-  for(const p of fl.filter(l => l.part === 1)) assert.ok(Math.hypot(p.cx - S / 2, p.cy - S / 2) > S * 0.22, 'petals around it');
+  const fl = lob('flower'); assert.equal(fl.filter(l => l.part === 0).length, 1, 'one centre'); assert.equal(fl.filter(l => l.part === 1).length, 6, 'six separate petals'); assert.equal(fl.filter(l => l.part === 2).length, 1, 'one stem');
+  const S = D.formSize('flower'), c = fl.find(l => l.part === 0), hx = S / 2 - 0.5, hy = (D.FLOWER.cy + 1) / 2 * S - 0.5;
+  assert.ok(Math.hypot(c.cx - hx, c.cy - hy) < 1, 'the centre is the middle of the head');
+  const ks = fl.filter(l => l.part === 1).map(p => { assert.ok(Math.hypot(p.cx - hx, p.cy - hy) > S * 0.18, 'petals around it'); return D.petalIndex(p.cx, p.cy, S); });
+  assert.deepEqual(ks.slice().sort(), [0, 1, 2, 3, 4, 5], 'one petal per slot round the head (alternate hues by index)');
+  assert.ok(fl.find(l => l.part === 2).cy > hy + S * 0.2, 'the stem below the head');
+  // gaps: a dark ring round the centre and wedges between the petals, ≥ 4 cells wide (never selected: loops stay in their lobe)
+  const G = D.formGaps('flower', S); let gn = 0; for(const v of G) gn += v; assert.ok(gn > 400, 'gap cells ' + gn);
+  const L = D.formLabels('flower', S), LB = D.formLobes('flower', S), LR = D.lobeRooms(LB, S);
+  const cellsOf = q => { const o = []; for(let i = 0; i < S * S; i++) if(LB.id[i] === q + 1) o.push(i); return o; }, dist = (i, j) => Math.hypot(i % S - j % S, ((i / S) | 0) - ((j / S) | 0));
+  for(let a = 0; a < LB.lobes.length; a++) for(let b = a + 1; b < LB.lobes.length; b++){ let m = 1e9; for(const i of cellsOf(a)) for(const j of cellsOf(b)) m = Math.min(m, dist(i, j));
+    assert.ok(m >= 4, `gap between lobes ${a} (${LB.lobes[a].part}) and ${b} (${LB.lobes[b].part}): ${m.toFixed(2)} cells`); }
+  for(let q = 0; q < LB.lobes.length; q++) for(let i = 0; i < S * S; i++){ if(LB.id[i] !== q + 1) assert.equal(LR[q][i], 0); else assert.ok(LR[q][i] >= 1); }
   assert.equal(lob('tree').length, 2);
   const T = D.dreamTimeline(false, [3, 6], 2);
   assert.equal(T.cycles[0].phase, 'pick'); assert.equal(T.cycles[0].part, 0); assert.equal(T.cycles[0].loops, 3);
@@ -374,6 +389,18 @@ test('multi-colour growth: loops stay in their part, never reach the other part,
   for(const t of tg){ assert.equal(lab(t.i), 2, 'inside the petals'); assert.ok(room(t.i) - 1.25 * t.r >= 0.75 - 1e-9, 'the loop never reaches the centre');
     let s = 0, n = 0, R = Math.ceil(t.r * 1.25); for(let oy = -R; oy <= R; oy++) for(let ox = -R; ox <= R; ox++){ if(ox * ox + oy * oy > t.r * t.r * 1.5) continue; n++; s += D.familyScore(...rgb(t.i + oy * WC + ox), 345); }
     assert.ok(s / n >= 0.4 - 1e-9, 'mostly petal-coloured under the loop: ' + (s / n).toFixed(2)); }
+});
+test('flower loops (pureCount): every loop holds mostly cells OF the hue, down to a one-cell pick; nothing on a cell of another hue', () => {
+  const WC = 80, WR = 80, r0 = mulberry32(9), col = Array.from({ length: WC * WR }, () => { const k = r0(); return k < 0.25 ? [250, 200, 10] : k < 0.5 ? [230, 40, 80] : [12, 10, 16]; });
+  const S = 40, mask = new Float32Array(S * S).fill(1);
+  const tg = D.chooseCycleTargets({ rgb: i => col[i], isHeld: () => false, cluster: [40 * WC + 40], WC, WR, mask, S, fx: 40, fy: 40, ring: 6, count: 10, minSep: 2, loopR: 3, hue: 55, purity: 0.7, pureCount: true, minR: 0.7, rand: mulberry32(4) });
+  assert.ok(tg.length >= 5, 'targets ' + tg.length);
+  for(const t of tg){ assert.ok(D.familyScore(...col[t.i], 55) > 0.25, 'the loop is on a yellow cell'); assert.ok(t.r >= 0.7 - 1e-9 && t.r <= 3);
+    const x = t.i % WC, y = (t.i / WC) | 0, R = Math.ceil(t.r * 1.2); let own = 0, n = 0;
+    for(let oy = -R; oy <= R; oy++) for(let ox = -R; ox <= R; ox++){ if(Math.hypot(ox, oy) > t.r * 1.15 && (ox || oy)) continue; n++; if(D.familyScore(...col[(y + oy) * WC + x + ox], 55) > 0.25) own++; }
+    assert.ok(own / n >= 0.7, 'mostly yellow: ' + own + '/' + n); }
+  assert.ok(tg.some(t => t.r < 1), 'scattered yellow: some one-cell loops');
+  const lp = D.loopPoints(10, 10, 0.7, mulberry32(1)); for(const p of lp) assert.ok(Math.hypot(p.x - 10.5, p.y - 10.5) < 1, 'a one-cell loop stays inside its cell’s neighbours’ centres');
 });
 test('graded pure loops: pure spots first, a looser rule only when too few are found (never a stall)', () => {
   const WC = 120, WR = 120, S = 40, fx = 60, fy = 60, mask = new Float32Array(S * S).fill(1);

@@ -168,7 +168,12 @@ function makePlan(opts={}){
   const S=G.formSize(form);
   const hue=hueCache[theme]!=null?hueCache[theme]:(hueCache[theme]=G.themeFamilyHue({theme,rgb:cellRGB,WT}));
   const parts=G.resolveParts(form,pal,hue,opts.partHues||null),multi=parts.length>1,labels=G.formLabels(form,S);
-  const LB=multi?G.formLobes(form,S):null;
+  for(let i=0;i<labels.length;i++)if(labels[i]&&!parts.some(p=>p.label===labels[i]))labels[i]=0;   // an optional part the palette can't grow (the flower's stem) is left out
+  const LB=multi?G.formLobes(form,S,labels):null;
+  if(LB)for(const l of LB.lobes){const p=parts.find(pp=>pp.label===l.part+1);l.hue=p?G.lobeHue(p,form==='flower'&&p.name==='petals'?G.petalIndex(l.cx,l.cy,S):null):0;}   // each lobe's hue (alternate petals: hue2)
+  const gaps=G.formGaps(form,S,labels);
+  // every loop stays inside its own lobe (petal, centre, stem): at most SPILL cells past its edge, so the gaps stay unselected
+  const FL0=form==='flower',SPILL=opts.spill!=null?+opts.spill:1.0,LR=multi?G.lobeRooms(LB,S):null;
   const lobeMask=multi?LB.lobes.map((l,k)=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=LB.id[i]===k+1?1:0;return m;}):null;
   const partMask=parts.map(p=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=labels[i]===p.label?1:0;return m;});
   // guard: of a few regions far from the last dream, the one with the most family-coloured cells near the start (each part's own hue)
@@ -191,18 +196,25 @@ function makePlan(opts={}){
   // (red for love) when the spot has them, never near-black ones; the engine then does the rest
   const pickR=1.35,nearHole=hole?(i=>Math.hypot(i%WC+.5-HX,((i/WC)|0)+.5-HY)<hole.r+1.25*pickR+0.75):null;
   const X0=reg.fx-(S>>1),Y0=reg.fy-(S>>1);
+  const lobeWorld=LB?LB.lobes.map((l,q)=>{const o=[];for(let j=0;j<S*S;j++)if(LB.id[j]===q+1)o.push((Y0+((j/S)|0))*WC+X0+j%S);return o;}):null;
   const labelAt=i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;return x>=0&&y>=0&&x<S&&y<S?labels[y*S+x]:0;};
   // multi-colour: distance (cells) from each box cell to the nearest cell of ANOTHER part, so a loop never reaches across
   const roomMap=multi?parts.map(p=>{const d=new Float32Array(S*S).fill(1e9),oth=[];for(let i=0;i<S*S;i++)if(labels[i]&&labels[i]!==p.label)oth.push(i);
     for(let i=0;i<S*S;i++){if(labels[i]!==p.label)continue;const x=i%S,y=(i/S)|0;let b=1e9;for(const j of oth){const q=Math.hypot(j%S-x,((j/S)|0)-y);if(q<b)b=q;}d[i]=b;}return d;}):null;
   const roomOf=multi?(k=>i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;return x>=0&&y>=0&&x<S&&y<S?roomMap[k][y*S+x]:1e9;}):(()=>null);
+  const roomOfLobe=multi?(q=>i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;if(!(x>=0&&y>=0&&x<S&&y<S))return 0;const j=y*S+x;return LB.id[j]===q+1?LR[q][j]+SPILL:0;}):(()=>null);
+  const lobeRoomAt=i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;if(!(x>=0&&y>=0&&x<S&&y<S))return 0;const j=y*S+x,q=LB.id[j];return q?LR[q-1][j]:0;};
   const pks=parts.map((part,k)=>{
-    const vivid=i=>G.familyScore(...cellRGB(i),part.hue)>=0.3,inPart=i=>!multi||labelAt(i)===part.label;
-    const exclude=i=>(nearHole&&nearHole(i))||!vivid(i)||!inPart(i);
+    const vivid=(i,h=part.hue)=>G.familyScore(...cellRGB(i),h)>=0.3,inPart=i=>!multi||labelAt(i)===part.label;
+    const exclude=i=>(nearHole&&nearHole(i))||(!part.hue2&&!vivid(i))||!inPart(i)||(FL0&&lobeRoomAt(i)+SPILL<1.25*pickR+0.75);   // a pick's loop stays in its lobe too
     const pk={picks:[],hue:-1,colour:[0,0,0]};
-    for(const q of part.starts){const sx=Math.round(reg.fx+q.dx*S),sy=Math.round(reg.fy+q.dy*S);
-      const qw=q.win||ww,qh=q.win||wh,pa={rgb:cellRGB,WC,x0:sx-(qw>>1),y0:sy-(qh>>1)+(q.win?0:2),w:qw,h:qh,maxPicks:q.n,minGap:3,prefer:G.binsNear(part.hue)};
-      let pq=G.pickScattered({...pa,exclude});
+    for(const q of part.starts){const qh2=G.lobeHue(part,q.k),exq=i=>exclude(i)||(qh2!==part.hue&&!vivid(i,qh2))||(qh2===part.hue&&!vivid(i));const sx=Math.round(reg.fx+q.dx*S),sy=Math.round(reg.fy+q.dy*S);
+      const qw=q.win||ww,qh=q.win||wh,pa={rgb:cellRGB,WC,x0:sx-(qw>>1),y0:sy-(qh>>1)+(q.win?0:2),w:qw,h:qh,maxPicks:q.n,minGap:3,prefer:G.binsNear(qh2)};
+      let pq=G.pickScattered({...pa,exclude:exq});
+      if(!pq.picks.length&&multi&&LB){   // nothing of this hue at the start: the most vivid cell of that hue in the same lobe (a petal is never left empty)
+        const lq=LB.id[Math.max(0,Math.min(S-1,sy-Y0))*S+Math.max(0,Math.min(S-1,sx-X0))];let bi=-1,bv=0.3;
+        if(lq)for(let j=0;j<S*S;j++){if(LB.id[j]!==lq)continue;const i=(Y0+((j/S)|0))*WC+X0+j%S;if(exclude(i))continue;const v=G.familyScore(...cellRGB(i),qh2);if(v>bv){bv=v;bi=i;}}
+        if(bi>=0)pq={picks:[bi],hue:-1,colour:[0,0,0]};}
       if(!pq.picks.length&&!multi)pq=G.pickScattered({...pa,exclude:nearHole});   // no vivid pixel at the spot: as before
       pk.picks.push(...pq.picks);if(pk.hue<0&&pq.picks.length){pk.hue=pq.hue;pk.colour=pq.colour;}}
     if(!pk.picks.length){   // multi-colour part with no vivid pixel at its starts: its most vivid cells anywhere in the part
@@ -214,16 +226,17 @@ function makePlan(opts={}){
   // strokes: every lasso and every Evolve tap, in order, with its time slot. Cycle 0 = the first
   // scattered picks; every later cycle circles new cells in the grown zone of influence. After
   // every lasso the pointer goes to Evolve and taps it.
-  const strokes=[];
+  const strokes=[],FL=form==='flower',loopMul=opts.loopMul!=null?+opts.loopMul:(FL?2:1);   // the flower: twice the loops, many of them one-cell picks
   const nC=tl.cycles.length;
   tl.cycles.forEach((c,k)=>{
     if(c.phase==='pick'){const pp=pks[c.part]?pks[c.part].picks:[],np=pp.length,pd=(c.loopEnd-c.t0)/Math.max(1,np);
       pp.forEach((p,q)=>strokes.push({kind:'loop',phase:'pick',cycle:k,part:c.part,t0:c.t0+q*pd,t1:c.t0+(q+1)*pd,centre:p,r:pickR}));}
-    else{const L=(c.loopEnd-c.t0)/c.loops,r=G.cycleLoopR(k,nC,zP,zC,CS);   // loops grow in screen px across the cycles
-      for(let j=0;j<c.loops;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r,centre:null});}
+    else{const nL=multi?Math.max(1,Math.round(c.loops*loopMul)):c.loops,L=(c.loopEnd-c.t0)/nL,r=G.cycleLoopR(k,nC,zP,zC,CS);   // loops grow in screen px across the cycles
+      for(let j=0;j<nL;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r,centre:null});}
     strokes.push({kind:'evo',cycle:k,t0:c.loopEnd,t1:c.press,ease:RM?0:c.ease});
   });
-  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,ineligible,LB,lobeMask,purity:opts.purity||0.4,singlePure:opts.singlePure!=null?!!opts.singlePure:true,   // pure loops for every form (Oct 18 evening; opts: evaluation only)
+  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,roomOfLobe,gaps,lobeWorld,ineligible,headDy:FL?G.FLOWER.cy/2*S:0,frameW:FL?0.72:0.85,frameH:FL?0.52:0.6,frameDy:FL?0.05:0,   // the flower steps back a little further, below the caption
+LB,lobeMask,purity:opts.purity||0.4,pureCount:opts.pureCount!=null?!!opts.pureCount:form==='flower',lobePurity:opts.lobePurity||(form==='flower'?0.7:opts.purity||0.4),grades:opts.grades||(form==='flower'?[1,0.75]:[1,0.6,0.3,0]),singlePure:opts.singlePure!=null?!!opts.singlePure:true,   // pure loops for every form (Oct 18 evening; opts: evaluation only)
     
     partCells:parts.map(()=>new Set()),lobeCells:multi?LB.lobes.map(()=>new Set()):null,pickByPart:pks.map(p=>p.picks.length),pickBin:pk.hue,colour:pk.colour,zD,zC,zF,zP,fit:fv,tl,strokes,si:0,
     cyc:[],ptr:null,pressUntil:-1,tapAt:-1,taps:[],easeT:null,lit:[],frozen:false,genMs:[],lassosApplied:0,evolves:0,
@@ -282,27 +295,38 @@ function formStats(cl){
   let formN=0;for(let y=0;y<S;y++)for(let x=0;x<S;x++){if(!P.mask[y*S+x])continue;formN++;const [r,g,b]=cellRGB((Y0+y)*WC+X0+x);if(D().familyScore(r,g,b,P.hue)>0.25)red++;}
   let inHole=0;if(P.hole)for(const i of cl)if(Math.hypot(i%WC+.5-P.HX,((i/WC)|0)+.5-P.HY)<P.hole.r)inHole++;
   // multi-colour: per part, how much of it is that part's hue, and how much is the OTHER part's hue (the colours stayed apart?)
-  const parts=P.multi?P.parts.map((p,k)=>{let n=0,own=0,oth=0,held=0;const o=P.parts[1-k];
+  const F=(c,h)=>D().familyScore(...c,h)>0.25,dh=i=>cells[i].s>0&&!S0.owned.has(i);
+  const parts=P.multi?P.parts.map((p,k)=>{let n=0,own=0,oth=0,held=0;const os=P.parts.filter(q=>q!==p);
     for(let y=0;y<S;y++)for(let x=0;x<S;x++){if(P.labels[y*S+x]!==p.label)continue;n++;const i=(Y0+y)*WC+X0+x,c=cellRGB(i);
-      if(D().familyScore(...c,p.hue)>0.25)own++;if(o&&D().familyScore(...c,o.hue)>0.25)oth++;if(cells[i].s>0&&!S0.owned.has(i))held++;}
+      if(F(c,p.hue))own++;if(os.some(o=>F(c,o.hue)))oth++;if(dh(i))held++;}
     return{name:p.name,hue:p.hue,cells:n,held,own:+(own/n).toFixed(3),other:+(oth/n).toFixed(3)};}):undefined;
-  return{held:cl.length,...(parts?{parts}:{}),inForm:inF,outForm:cl.length-inF,inHole,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
+  // per lobe (each petal…): own hue; the gaps (flower): how much stays unselected, and how much shows a part's hue anyway (drift)
+  const lobes=P.multi?P.LB.lobes.map((l,q)=>{let n=0,own=0,held=0;const p=P.parts.find(pp=>pp.label===l.part+1);
+    for(let j=0;j<S*S;j++){if(P.LB.id[j]!==q+1)continue;n++;const i=(Y0+((j/S)|0))*WC+X0+j%S;if(p&&F(cellRGB(i),l.hue))own++;if(dh(i))held++;}
+    return{part:p?p.name:'-',hue:l.hue,cells:n,own:+(own/n).toFixed(3),held:+(held/n).toFixed(3)};}):undefined;
+  let gn=0,gu=0,gh=0;if(P.gaps)for(let j=0;j<S*S;j++){if(!P.gaps[j])continue;gn++;const i=(Y0+((j/S)|0))*WC+X0+j%S;if(!dh(i))gu++;if(P.parts.slice(0,2).some(p=>F(cellRGB(i),p.hue)))gh++;}
+  return{held:cl.length,...(parts?{parts}:{}),...(lobes?{lobes}:{}),...(gn?{gap:{cells:gn,unheld:+(gu/gn).toFixed(3),partHue:+(gh/gn).toFixed(3)}}:{}),inForm:inF,outForm:cl.length-inF,inHole,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
 }
 function cycleTargets(k){
   const P=plan;if(P.cyc[k])return P.cyc[k];
+  const t0=performance.now(),r=cycleTargets0(k);P.tgtMs=(P.tgtMs||0)+performance.now()-t0;return r;
+}
+function cycleTargets0(k){
+  const P=plan;
   const cl=dreamCluster(),c=P.tl.cycles[k],st=P.strokes.filter(s=>s.cycle===k&&s.kind==='loop'&&s.phase==='cycle');
   if(c.phase==='pick')return(P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,picks:true,targets:[],before:formStats(cl),genBefore:generation});
   const r=st.length?st[0].r:2;
   if(P.multi){   // loops shared between the form's lobes (each petal / ray, the centre…): each goes where the most is still to grow
     const X0=P.fx-(P.S>>1),Y0=P.fy-(P.S>>1),LBs=P.LB.lobes;
     const held=LBs.map((l,q)=>[...P.lobeCells[q]].filter(i=>cells[i].s>0));
-    const need=LBs.map((l,q)=>l.cells*Math.max(0.05,1-held[q].length/l.cells)),cnt=LBs.map(()=>0);
-    for(let j=0;j<c.loops;j++){let b=0,bv=-1;for(let q=0;q<cnt.length;q++){const v=need[q]/(cnt[q]+1)**2;if(v>bv){bv=v;b=q;}}cnt[b]++;}
+    const need=LBs.map((l,q)=>l.cells*((P.parts.find(p=>p.label===l.part+1)||{}).weight||1)*Math.max(0.05,1-held[q].length/l.cells)),   // weight: a small part that must show (the flower's centre) gets more loops
+      cnt=LBs.map(()=>0);
+    for(let j=0;j<st.length;j++){let b=0,bv=-1;for(let q=0;q<cnt.length;q++){const v=need[q]/(cnt[q]+1)**2;if(v>bv){bv=v;b=q;}}cnt[b]++;}
     const all=[];
     LBs.forEach((l,q)=>{if(!cnt[q])return;const p=P.parts[l.part];
-      const seed=held[q].length?held[q]:[(Y0+Math.round(l.cy))*WC+X0+Math.round(l.cx)];   // a lobe nobody has reached yet: from its middle
+      const seed=held[q].length?held[q]:(P.pureCount?P.lobeWorld[q]:[(Y0+Math.round(l.cy))*WC+X0+Math.round(l.cx)]);   // a lobe nobody has reached yet: from its middle (pure loops: anywhere in it)
       const tq=D().chooseCycleTargetsGraded({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:seed,
-        WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:1.2,hue:p.hue,loopR:r,strict:true,room:P.roomOf(l.part),purity:P.purity});
+        WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],bias:1.0+k*0.25,fill:1.2,hue:l.hue,loopR:r,strict:true,room:P.pureCount?P.roomOfLobe(q):P.roomOf(l.part),purity:P.lobePurity,grades:P.grades,pureCount:P.pureCount,minR:P.pureCount?0.7:0.99,minSep:P.pureCount?2:Math.max(3,Math.round(r*1.3))});
       tq.forEach(o=>{o.part=l.part;o.lobe=q;all.push(o);});});
     P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:all.map(o=>o.i),perLobe:cnt,targetRed:+(all.reduce((s,o)=>s+o.red,0)/Math.max(1,all.length)).toFixed(3),
       targetsInForm:all.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};
@@ -406,9 +430,10 @@ function frame(now){
     P.fc=x1>=0?{x:((x0+x1)/2+.5)*CS,y:((y0+y1)/2+.5)*CS}:{x:fwx,y:fwy};
     // framing only: the step back ends where the grown form fills ~85% of the width / ~60% of the height
     // (between 1.5× the fit view and the cycles' last zoom, so it is still a step back)
-    if(x1>=0){const bw=(x1-x0+1)*CS,bh=(y1-y0+1)*CS,zf=Math.min(w*0.85/bw,h*0.6/bh);
+    if(x1>=0){const bw=(x1-x0+1)*CS,bh=(y1-y0+1)*CS,zf=Math.min(w*P.frameW/bw,h*P.frameH/bh);
       P.zF=Math.max(P.fit.z*1.5,Math.min(P.zC,zf));window.__dreamLast.zF=+P.zF.toFixed(2);}}
-  if(P.fc){const e=RM?1:ease(ph(t,T.zout));fwx+=(P.fc.x-fwx)*e;fwy+=(P.fc.y-fwy)*e;}
+  if(P.headDy&&!P.fc)fwy+=P.headDy*CS*(1-(RM?1:ease(ph(t,[C0,C0+0.45]))));   // the flower: the deep zoom looks at its head (centre picks), then eases to the whole form
+  if(P.fc){const e=RM?1:ease(ph(t,T.zout));fwx+=(P.fc.x-fwx)*e;fwy+=(P.fc.y-fwy)*e;vc.y+=P.frameDy*h*e;}
   let z;
   if(t<T.zin[1]&&!RM){
     const e=ease(ph(t,T.zin));z=Math.exp(Math.log(view0.z)+(Math.log(P.zD)-Math.log(view0.z))*e);
@@ -520,7 +545,7 @@ function end(reason,restoreView){
   let sumAfter=D().checksumCells(cells),restored=false;
   if(sumAfter!==sumBefore){D().restoreCells(cells,S0.cells);restored=true;renderAll();sumAfter=D().checksumCells(cells);console.warn('dream: canvas restored from snapshot (fallback)');}
   const fr=stats(),match=stateMatches();
-  window.__dreamLast={...window.__dreamLast,playing:false,reason,ms:Math.round(ms),wallMs:Math.round(wall),genMs:P?P.genMs:[],clockPauseMs:P?Math.round(P.pauseMs||0):0,genTotalMs:P?Math.round(P.genMs.reduce((a,b)=>a+b,0)):0,
+  window.__dreamLast={...window.__dreamLast,playing:false,reason,ms:Math.round(ms),wallMs:Math.round(wall),genMs:P?P.genMs:[],clockPauseMs:P?Math.round(P.pauseMs||0):0,targetMs:P?Math.round(P.tgtMs||0):0,genTotalMs:P?Math.round(P.genMs.reduce((a,b)=>a+b,0)):0,
     lassosApplied:P?P.lassosApplied:0,evolves:P?P.evolves:0,genPeak:P?(S0.generation+P.evolves):0,
     cycles:P?P.cyc.map(x=>({...x,targets:x.targets.length})):[],...(fin?{final:fin}:{}),
     sumBefore,sumAfter,equal:sumAfter===sumBefore,restored,restoreMatch:match,exact:!!match&&Object.values(match).every(Boolean),frames:fr};
