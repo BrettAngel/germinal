@@ -582,6 +582,7 @@ function onInput(e){
 let lastInput=performance.now(),lastPulse=0,coachState='',pulseUntil=0,miniRAF=0,handAt=0,lassosAfter=0,firstGlowDone=false,evolvesAfter=0;
 function setCoach(state,text){if(playing||pending)return;coachState=state;coachLine.textContent=text;if(!coachHidden)coach.classList.add('on');}
 function handover(reason){
+  if(typeof window.joinLiveCanvas==='function')window.joinLiveCanvas();   // option A: after the vision, the visitor is on the live canvas
   coachAgain.textContent=D().COPY.replay;coachAgain.setAttribute('aria-label',D().COPY.replay);
   handAt=performance.now();rec.handoverAt=Date.now();
   if(IS_KIOSK){scheduleAttract();}
@@ -682,7 +683,9 @@ function afterIntro(){
     setTimeout(()=>{(window.requestIdleCallback||(f=>setTimeout(f,0)))(go,{timeout:1200});},450);
     return true;
   }
-  setCoach('quiet','');saveRec();return false;
+  setCoach('quiet','');saveRec();
+  if(typeof window.joinLiveCanvas==='function')window.joinLiveCanvas();   // no vision: start from the live canvas now
+  return false;
 }
 window.addEventListener('pagehide',()=>{if(playing)end('interrupted',false);saveRec();});
 window.DREAM={play,skip:()=>end('skipped',true),resume:()=>{if(plan&&plan.pauseAt)plan.pauseAt.shift();},afterIntro,onLasso,onEvolve,onShare,overCapLine,get playing(){return playing;},get t(){return playing&&T0?(performance.now()-T0)/1000:0;},stats,rec};

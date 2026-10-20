@@ -35,8 +35,40 @@ const MAIN_ENGINE_SHA256 = '86f763594a31999d0cf165e54451d3f143547c565be58fce1cdb
 const MAIN_ENGINE_NOPAL_SHA256 = 'a530f17b1ba2892836146aaa03f739e9c40ebdb523c46f7946313c5c6ec41334';   // engineText(origin/main b70c892 app.html, true)
 const MAIN_PALETTE_SHA256 = '5cf58bac6b224b1450620676a25ec26e1b77db33d98427d3bcd75df24a2acded';      // span(origin/main app.html, 'const PALS={', 'function buildPool(){')
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
-test('engine: everything but the palette table (colour helpers, start canvas, pool weights, recognition field, stepGen/stepGenFast, encoding) is byte-identical to origin/main', () => {
-  assert.equal(sha(engineText(app, true)), MAIN_ENGINE_NOPAL_SHA256);
+// ── WHITELIST (option A, Brett-approved 2026-10-19): the save colour rounding ──
+// The ONLY change inside the engine spans besides the palette table is in the
+// save codec (encodeForServer / decodeFromServer): round to the nearest 5-bit
+// level (q5) instead of flooring (>>3), and decode by bit replication (x5)
+// instead of q<<3. Same RGB555 + held-bit format, so old rows still load.
+// mainCodec() maps exactly those lines back to main's; everything else in the
+// spans must then be main's byte for byte. The evolve code (stepGen,
+// buildRecogField, buildPool, the colour helpers, start canvas) is checked
+// on its own too, with no whitelist at all.
+const CODEC_SPAN = '// ── Encode current canvas state for server ──';
+function mainCodec(t){
+  const a = t.indexOf('// PROTOTYPE (option A, Brett-approved 2026-10-19)'), z = 'function x5(q){return (q<<3)|(q>>2);}\n';
+  assert.ok(a >= 0 && t.indexOf(z) > a, 'the whitelisted codec comment and helpers');
+  t = t.slice(0, a) + t.slice(t.indexOf(z) + z.length);
+  for(const [k, c] of [['r', '1,3'], ['g', '3,5'], ['b', '5,7']]) t = t.replace(`const ${k}=q5(parseInt(c.slice(${c}),16));`, `const ${k}=parseInt(c.slice(${c}),16)>>3;`);
+  return t.replace('const r=x5((q>>10)&31);', 'const r=((q>>10)&31)<<3;').replace('const g=x5((q>>5)&31);', 'const g=((q>>5)&31)<<3;').replace('const b=x5(q&31);', 'const b=(q&31)<<3;');
+}
+const MAIN_EVOLVE_NOPAL_SHA256 = '17d7d017d3e1dfadc73a81b8e5a9959f5f02b152a37eb4440807c5e86b3fd2c7';   // engineText without the codec span, palette blanked (origin/main b70c892)
+const MAIN_CODEC_SHA256 = 'd945df2923dabace33d785961f2d4f0968975f63a22bc36e96e0f6ba0ef04b9c';           // span(origin/main app.html, CODEC_SPAN, 'async function saveToServer(){')
+const evolveText = s => engineText(s, true).split('\n@@\n').slice(0, -1).join('\n@@\n');
+test('engine: the evolve code (colour helpers, start canvas, pool, recognition field, stepGen/stepGenFast) is byte-identical to origin/main, no whitelist', () => {
+  assert.ok(SPANS[SPANS.length - 1][0] === CODEC_SPAN, 'the codec is the last span');
+  assert.equal(sha(evolveText(app)), MAIN_EVOLVE_NOPAL_SHA256);
+  for(const f of ['function stepGen(){', 'function buildRecogField(){', 'function buildPool(){', 'function stepGenFast(){', 'function lerpH(', 'function seedCanvas(){', 'function initCells(){'])
+    assert.ok(evolveText(app).includes(f), f + ' is inside the checked spans');
+});
+test('save codec: the only change is rounding (whitelisted, see mainCodec); mapped back it is main\'s, byte for byte', () => {
+  const codec = span(app, CODEC_SPAN, 'async function saveToServer(){');
+  assert.notEqual(sha(codec), MAIN_CODEC_SHA256, 'the codec changed (rounding)');
+  assert.equal(sha(mainCodec(codec)), MAIN_CODEC_SHA256, 'and nothing else in it');
+});
+test('engine: everything but the palette table and the whitelisted codec rounding is byte-identical to origin/main', () => {
+  const t = engineText(app, true), k = t.lastIndexOf('\n@@\n') + 4;
+  assert.equal(sha(t.slice(0, k) + mainCodec(t.slice(k))), MAIN_ENGINE_NOPAL_SHA256);
   assert.notEqual(sha(span(app, 'const PALS={', 'function buildPool(){')), MAIN_PALETTE_SHA256, 'the palette table is the (approved) deviation');
   assert.notEqual(sha(engineText(app)), MAIN_ENGINE_SHA256);
 });
@@ -457,3 +489,97 @@ test('dream uses the real mechanics: applyLasso + nextGen, no stored image or ma
   assert.doesNotMatch(ui, /saveToServer|fetch\(/, 'nothing saved to the server');
 });
 
+
+// ── option A (Brett-approved 2026-10-19): save rounding + everyone starts from the live canvas ──
+import vm from 'node:vm';
+const codecSrc = () => span(app, CODEC_SPAN, 'async function saveToServer(){');
+const colourHelpers = () => span(app, '// ── Color helpers ──', 'function nb(i){');
+function codecCtx(WT, extra = {}){
+  const ctx = vm.createContext({ WT, cells: [], atob, btoa, console, Uint16Array, Uint8Array, Math, ...extra });
+  vm.runInContext(colourHelpers() + '\n' + codecSrc() + '\nthis.enc=encodeForServer;this.dec=decodeFromServer;this.q5=q5;this.x5=x5;this.lerpH=lerpH;', ctx);
+  return ctx;
+}
+// main's codec, verbatim (origin/main b70c892), to compare against
+const MAIN_ENC = c => { const r = parseInt(c.slice(1, 3), 16) >> 3, g = parseInt(c.slice(3, 5), 16) >> 3, b = parseInt(c.slice(5, 7), 16) >> 3; return (r << 10) | (g << 5) | b; };
+const MAIN_DEC = q => '#' + [((q >> 10) & 31) << 3, ((q >> 5) & 31) << 3, (q & 31) << 3].map(v => v.toString(16).padStart(2, '0')).join('');
+test('save rounding: nearest 5-bit level, exact round trip, no bias; old (floored) rows still load', () => {
+  const X = codecCtx(4);
+  for(let q = 0; q < 32; q++) assert.equal(X.q5(X.x5(q)), q, 'level ' + q + ' survives a save/load');
+  assert.equal(X.x5(31), 255); assert.equal(X.x5(0), 0);
+  let bias = 0, worst = 0; for(let v = 0; v < 256; v++){ const e = X.x5(X.q5(v)) - v; bias += e; worst = Math.max(worst, Math.abs(e)); }
+  assert.ok(worst <= 4 && Math.abs(bias / 256) < 0.1, `max error ${worst}, mean ${bias / 256}`);   // main: max 7, mean −3.5
+  // a full canvas round trip, held flags kept, and a second save/load changes nothing
+  X.cells = ['#ff0000', '#123456', '#ffffff', '#07080a'].map((c, i) => ({ c, s: i % 2 }));
+  const b1 = X.enc(); assert.ok(X.dec(b1)); const once = X.cells.map(c => c.c + c.s);
+  assert.equal(X.cells[2].c, '#ffffff', 'white comes back white (main: #f8f8f8)'); assert.deepEqual(X.cells.map(c => c.s), [0, 1, 0, 1]);
+  assert.equal(X.enc(), b1); assert.ok(X.dec(X.enc())); assert.deepEqual(X.cells.map(c => c.c + c.s), once);
+  // an OLD row (main's floor encoding, same layout) loads: valid colours, inside its level, held bit kept
+  const cols = ['#cc0033', '#ff99aa', '#2a8a2a', '#000000', '#fefefe'], arr = new Uint16Array(cols.map((c, i) => (i === 1 ? 0x8000 : 0) | MAIN_ENC(c)));
+  const old = btoa(String.fromCharCode(...new Uint8Array(arr.buffer)));
+  const Y = codecCtx(5); Y.cells = cols.map(() => ({ c: '#000000', s: 0 })); assert.ok(Y.dec(old));
+  Y.cells.forEach((c, i) => { assert.match(c.c, /^#[0-9a-f]{6}$/); const m = MAIN_DEC(MAIN_ENC(cols[i]));
+    for(const k of [1, 3, 5]){ const a = parseInt(c.c.slice(k, k + 2), 16), lo = parseInt(m.slice(k, k + 2), 16); assert.ok(a >= lo && a <= lo + 7, c.c + ' within ' + m); } });
+  assert.deepEqual(Y.cells.map(c => c.s), [0, 1, 0, 0, 0]);
+  // and main can read a new row (same 15-bit layout): its decode gives the floor of the level
+  const Z = codecCtx(1); Z.cells = [{ c: '#ffffff', s: 1 }]; const nb = Z.enc(), q = new Uint16Array(Uint8Array.from(atob(nb), ch => ch.charCodeAt(0)).buffer)[0];
+  assert.equal(q & 0x8000, 0x8000); assert.equal(MAIN_DEC(q & 0x7fff), '#f8f8f8');
+});
+test('save rounding: 50 save/reload cycles with the engine\'s held-cell drift in between: main darkens, rounding stays put', () => {
+  // each cycle: every held cell lerps toward a random held neighbour (the engine's s1 rule, real lerpH),
+  // then the canvas is saved and reloaded; compared with the same run never quantised
+  const W = 40, N = W * W, run = codec => { const r = mulberry32(7), X = codecCtx(N, { Math: Object.assign(Object.create(Math), { random: r }) });
+    const pal = NEW_PALS.love; X.cells = Array.from({ length: N }, () => ({ c: pal[Math.floor(r() * pal.length)], s: 1 }));
+    for(let k = 0; k < 50; k++){
+      for(let i = 0; i < N; i++){ if(r() > 0.08) continue; const j = Math.min(N - 1, Math.max(0, i + [1, -1, W, -W][Math.floor(r() * 4)])); X.cells[i].c = X.lerpH(X.cells[i].c, X.cells[j].c, 0.08 + r() * 0.12); }
+      if(codec === 'main'){ X.cells = X.cells.map(c => ({ c: MAIN_DEC(MAIN_ENC(c.c)), s: c.s })); } else if(codec === 'new'){ X.dec(X.enc()); } }
+    return X.cells.reduce((s, c) => s + parseInt(c.c.slice(1, 3), 16) + parseInt(c.c.slice(3, 5), 16) + parseInt(c.c.slice(5, 7), 16), 0) / (3 * N); };
+  const ideal = run('none'), main = run('main'), neu = run('new');
+  assert.ok(main - ideal < -3, `main drifts dark: ${(main - ideal).toFixed(2)}`);
+  assert.ok(Math.abs(neu - ideal) < 0.6, `rounding: ${(neu - ideal).toFixed(2)}`);
+});
+// the start-from-live path with the network mocked (the real functions from app.html)
+function liveCtx({ reply, share = null, playing = false }){
+  const calls = [], WT = 4, ctx = vm.createContext({ WT, cells: Array.from({ length: WT }, () => ({ c: '#010203', s: 0 })), atob, btoa, console, Uint16Array, Uint8Array, Float32Array, Math, Promise, AbortController, setTimeout, clearTimeout,
+    API: '/api', currentShareId: share, generation: 7, genesisGenerations: 7, userOwnedCells: new Set([1]), pendingSel: new Set([2]), affinityPerCell: null, userScore: 5, generationLog: [1],
+    renderAll: () => { ctx.renders++; }, updateStats: () => {}, archiveState: () => {}, renders: 0, document: { getElementById: () => ({ value: 'Love' }) },
+    fetch: async (url, opts) => { calls.push({ url, opts }); return reply(url); } });
+  ctx.window = ctx; ctx.DREAM = { playing };
+  const loader = span(app, '// ── PROTOTYPE (option A, Brett-approved 2026-10-19): everyone starts from the live canvas ──', '// Returning visitors and kiosks skip genesis');
+  vm.runInContext(colourHelpers() + codecSrc() + span(app, 'function normTheme(raw){', "return t||'love';\n}") + "return t||'love';\n}\n" + loader +
+    '\nthis.peek=()=>({generation,genesisGenerations,owned:userOwnedCells.size,pend:pendingSel.size,userScore,liveStart:!!liveStart});', ctx);
+  return { ctx, calls };
+}
+const liveRow = (() => { const X = codecCtx(4); X.cells = ['#cc0033', '#ffcc00', '#3366ee', '#000000'].map((c, i) => ({ c, s: i < 2 ? 1 : 0 })); return X.enc(); })();
+test('start from the live canvas (network mocked): after the vision the working canvas is the theme\'s live canvas; once per page', async () => {
+  const { ctx, calls } = liveCtx({ reply: () => ({ ok: true, json: async () => ({ theme: 'pb-love', generation: 42, cellData: liveRow, source: 'mother_display' }) }) });
+  const p = ctx.joinLiveCanvas(), res = await p;
+  assert.equal(calls.length, 1); assert.equal(calls[0].url, '/api/display-live?theme=love', 'the plain theme (the endpoint reads pb-love)'); assert.equal(calls[0].opts.cache, 'no-store');
+  assert.deepEqual([res.source, res.applied, res.via], ['live', true, 'after-vision']);
+  const X = codecCtx(4); X.cells = ['#cc0033', '#ffcc00', '#3366ee', '#000000'].map(c => ({ c, s: 0 })); X.dec(liveRow);
+  assert.deepEqual(ctx.cells.map(c => c.c), X.cells.map(c => c.c), 'the live canvas, decoded'); assert.equal(ctx.cells[1].c, '#ffce00');
+  assert.deepEqual(ctx.cells.map(c => c.s), [1, 1, 0, 0], 'the live holds come too');
+  const pk = ctx.peek(); assert.deepEqual([pk.generation, pk.genesisGenerations, pk.owned, pk.pend, pk.userScore], [42, 42, 0, 0, 0], 'a fresh start on the live canvas');
+  assert.equal(ctx.joinLiveCanvas(), p, 'once per page'); assert.equal(calls.length, 1, 'no second fetch (a later "Dream again" never reloads)');
+  assert.equal(ctx.currentShareId, null, 'no parent: the save gets the latest live save as parent, depth = live + 1');
+  assert.match(app, /parentId: currentShareId \|\| null,/);
+  assert.deepEqual(await resolveLineage({ parentId: null, theme: 'pb-love', lookupById: async () => null, lookupLatest: async () => ({ short_id: 'live01', depth: 4 }) }), { parentId: 'live01', depth: 5, via: 'live' });
+});
+test('start from the live canvas: empty live canvas or a failed fetch keeps main\'s start canvas; never under a playing vision; share links keep theirs', async () => {
+  for(const [name, reply] of [['empty', () => ({ ok: true, json: async () => ({ theme: 'pb-love', empty: true, cellData: null, generation: 0 }) })],
+    ['http 500', () => ({ ok: false, status: 500, json: async () => ({}) })], ['offline', () => { throw new Error('offline'); }], ['bad json', () => ({ ok: true, json: async () => { throw new Error('bad'); } })]]){
+    const { ctx } = liveCtx({ reply }), res = await ctx.joinLiveCanvas();
+    assert.equal(res.applied, false, name); assert.ok(['empty', 'error'].includes(res.source), name);
+    assert.deepEqual(ctx.cells.map(c => c.c), ['#010203', '#010203', '#010203', '#010203'], name + ': the start canvas stays'); assert.equal(ctx.peek().generation, 7);
+  }
+  const s = liveCtx({ reply: () => { throw new Error('no fetch for a share'); }, share: 'abc123' }), rs = await s.ctx.joinLiveCanvas();
+  assert.deepEqual([rs.source, rs.applied, s.calls.length], ['share', false, 0]);
+  const d = liveCtx({ reply: () => ({ ok: true, json: async () => ({ generation: 9, cellData: liveRow }) }), playing: true });
+  const pr = d.ctx.joinLiveCanvas(); await new Promise(r => setTimeout(r, 60)); assert.equal(d.ctx.cells[0].c, '#010203', 'waits while the vision plays');
+  d.ctx.DREAM.playing = false; const rd = await pr; assert.equal(rd.applied, true); assert.equal(d.ctx.peek().generation, 9);
+  // the hooks: after the vision (handover) and when no vision plays; quickStart shares the loader
+  const ui = fs.readFileSync(new URL('../dream-ui.js', import.meta.url), 'utf8');
+  assert.match(ui, /function handover\(reason\)\{\n  if\(typeof window\.joinLiveCanvas==='function'\)window\.joinLiveCanvas\(\);/);
+  assert.ok((ui.match(/window\.joinLiveCanvas\(\)/g) || []).length === 2);
+  const quick = app.slice(app.indexOf('async function quickStart(){'), app.indexOf('// Kiosk: return to a fresh canvas'));
+  assert.match(quick, /fetchLiveCanvas\(/); assert.match(quick, /liveStart=Promise\.resolve/);
+});
