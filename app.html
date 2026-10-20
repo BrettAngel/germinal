@@ -1120,6 +1120,24 @@ body.kiosk .hs .v{font-size:20px;}
 
 <div id="toast"></div>
 
+<!-- PROTOTYPE (variant B): badge + hint switcher so testers know what they're on. -->
+<details id="protoBadge" style="position:fixed;left:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:60;
+  font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.08em;color:#e8d8b0;background:rgba(6,6,15,.82);
+  border:1px solid rgba(200,169,110,.45);border-radius:8px;padding:5px 8px;max-width:260px;">
+  <summary style="cursor:pointer;list-style:none;text-transform:uppercase;"><span id="protoLabel">Prototype B</span> ▾</summary>
+  <div id="protoBody" style="padding-top:6px;line-height:1.5;letter-spacing:.02em;text-transform:none;"></div>
+</details>
+<script>
+// Variant config (save namespace) + the "Dream it" helpers are ES modules
+// (lib/variant.js, lib/dream.js). The app boots once they've loaded.
+window.GERM_READY=new Promise(res=>{window.__germReady=res;setTimeout(res,6000);});
+</script>
+<script type="module">
+import * as V from '/lib/variant.js';
+import * as D from '/lib/dream.js';
+window.GERM={V,D};
+window.__germReady();
+</script>
 <script>
 // ═══════════════════════════════════════════════════════════════════
 // WORLD  900 × 660 cells · CS=2px
@@ -1143,6 +1161,14 @@ function normTheme(raw){
   return t||'love';
 }
 if(QS.get('theme')){const ti=document.getElementById('themeIn');if(ti)ti.value=normTheme(QS.get('theme'));}
+// ── PROTOTYPE (variant B): save isolation ──
+// The input shows the plain theme ("love"); every API call uses this
+// branch's namespaced theme ("pb-love"; the server forces it too), so
+// nothing here can touch a real theme's rows. Colour behaviour is main's.
+function baseTheme(raw){const t=normTheme(raw);return window.GERM?GERM.V.parseNsTheme(t).base:t;}
+function themeNow(){return baseTheme(document.getElementById('themeIn').value);}
+function hintNow(){return 'orig';}   // dream-event label only: the original engine and start canvas (no hints)
+function apiTheme(){return window.GERM?GERM.V.nsTheme(themeNow()):themeNow();}
 // Genesis runs scripted generations before the visitor arrives. Those must
 // not score for the visitor, and must stop mutating once they take over.
 let genesisAborted=false, genesisGenerations=0, userEra=false;
@@ -1202,6 +1228,10 @@ let historyLayers=[];
 
 // Current user's owned cells and affinity data
 let userOwnedCells=new Set();
+// PROTOTYPE (glow rule): the cells chosen since the last Evolve. Only these are
+// highlighted (while selecting); every Evolve clears it, so nothing glows after.
+// Overlay only: hold data and colours are untouched by this.
+let pendingSel=new Set();
 let userScore=0;          // current net score (can go negative)
 let affinityPerCell=new Float32Array(WT); // per-cell score contribution
 let generationLog=[];     // [{gen, preserved, released, delta, cumulative}]
@@ -1303,7 +1333,7 @@ function seedCanvas(){
 function initCells(){
   cells=Array.from({length:WT},()=>({c:'#000',s:0}));
   affinityPerCell=new Float32Array(WT);
-  userOwnedCells=new Set();
+  userOwnedCells=new Set();pendingSel.clear();
   userScore=0;generationLog=[];historyLayers=[];
   seedCanvas();
 }
@@ -1423,6 +1453,7 @@ function scoreGeneration(){
     cumulative:userScore,precision:Math.round(prec*100),
     survivalRate:Math.round(survivalRate*100)});
 
+  if(window.DREAM&&DREAM.playing)return;   // PROTOTYPE: counters frozen at their pre-vision values while the vision plays
   // Update HUD
   const aEl=document.getElementById('hudA');
   aEl.textContent=userScore.toLocaleString();
@@ -1525,17 +1556,30 @@ window.toggleReveal=function(){
 // GENERATION STEP
 // ═══════════════════════════════════════════════════════════════════
 const PALS={
-  love:['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#ffbbcc','#ffcc00','#ff8800','#aa1133','#660022'],
-  grief:['#1a1a2e','#2a2a40','#334455','#556677','#778899','#aabbcc','#e0e8f0'],
-  hope:['#ffee88','#ffcc00','#88ccff','#ffffff','#aaffaa','#ff8800'],
-  nature:['#1a5a08','#2a7a12','#338814','#55aa22','#aaccaa','#8b4513'],
-  joy:['#ff6600','#ff8800','#ffcc00','#ff4499','#66ccff','#88eeff'],
+  // PROTOTYPE (variant B) — DEVIATION FROM MAIN, Brett-approved 2026-10-18: every palette is
+  // full-spectrum (reds, pinks, oranges, yellow, greens, teal/cyan, blues, violet, magenta, brown),
+  // each keeping a lean (~35–40% of entries) toward its old character. ONLY this table and the
+  // free-text fallback below differ from main; pool weights, influence, stepGen, seedCanvas and
+  // genesis are main's, byte for byte (tests/variant.test.mjs). Main's table:
+  //   love:['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#ffbbcc','#ffcc00','#ff8800','#aa1133','#660022']
+  //   grief:['#1a1a2e','#2a2a40','#334455','#556677','#778899','#aabbcc','#e0e8f0']
+  //   hope:['#ffee88','#ffcc00','#88ccff','#ffffff','#aaffaa','#ff8800']
+  //   nature:['#1a5a08','#2a7a12','#338814','#55aa22','#aaccaa','#8b4513']
+  //   joy:['#ff6600','#ff8800','#ffcc00','#ff4499','#66ccff','#88eeff']
+  love:['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#aa1133','#ff8800','#ffcc00','#55aa22','#2a8a2a','#22bbaa','#33ccee','#3366ee','#8844dd','#dd33aa','#8b4513'],
+  grief:['#1a1a2e','#334455','#556677','#778899','#aabbcc','#e0e8f0','#994455','#aa6655','#aa8844','#889944','#558866','#448888','#445599','#775599','#995577'],
+  hope:['#ffee88','#ffcc00','#88ccff','#aaffaa','#ffffff','#ff6677','#ff88cc','#ff8800','#55cc55','#33bbaa','#4477ee','#9966ee','#dd55cc','#aa7744'],
+  nature:['#1a5a08','#338814','#55aa22','#aaccaa','#8b4513','#cc3322','#ee7799','#ee8822','#eecc33','#22aa88','#3399cc','#3355bb','#7744bb','#bb3388'],
+  joy:['#ff6600','#ff8800','#ffcc00','#ff4499','#66ccff','#ee2233','#aaee44','#55cc33','#22bb99','#3366ff','#9944ee','#dd33cc','#996633','#88eeff'],
 };
 function themePal(){
   const t=(document.getElementById('themeIn').value||'').toLowerCase();
   for(const[k,v] of Object.entries(PALS))if(t.includes(k))return v;
   let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))&0xffff;
-  return Array.from({length:8},(_,i)=>`hsl(${(h*3+i*32)%360},60%,${38+i*5}%)`);
+  // free-text themes (Brett-approved 2026-10-18, main: 8 hues from the hash, 32° apart): 5 near the
+  // theme's own hue (its lean) + 9 around the rest of the wheel, 36° apart
+  const b=(h*3)%360,lean=[0,-14,14,-28,28].map((d,i)=>`hsl(${(b+d+360)%360},62%,${42+i*5}%)`);
+  return lean.concat(Array.from({length:9},(_,i)=>`hsl(${(b+36*(i+1))%360},60%,${40+(i%4)*7}%)`));
 }
 function buildPool(){
   const tp=themePal(),pool=[];
@@ -1764,6 +1808,7 @@ function stepGenFast(){
   // Don't call scoreGeneration during fast void — nothing to score
 }
 function stepGen(){
+  pendingSel.clear();   // glow rule: Evolve pressed → the selection highlight goes (not colour: overlay only)
   const pool=buildPool();buildRecogField();
   for(let i=0;i<WT;i++){
     const s=cells[i].s;
@@ -1812,6 +1857,7 @@ function nextGen(){
   // Snapshot before evolving so reveal shows pre-evolution state
   if(stabCount()>0&&generation===1) snapshotCurrentStabilisation();
   stepGen();renderAll();updateStats();archiveState();
+  if(userEra&&window.DREAM)DREAM.onEvolve();
 }
 
 let autoOn=false,autoT=null;
@@ -1864,28 +1910,39 @@ function drawClock(advance){
 // ═══════════════════════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════════════════════
+// PROTOTYPE (perf): same pixels as before, ~5× faster — one reused ImageData
+// (no 9.5 MB allocation per call), 32-bit writes, hex decoded by char code.
+const _HX=new Int8Array(128).fill(-1);for(let k=0;k<10;k++)_HX[48+k]=k;for(let k=0;k<6;k++){_HX[97+k]=10+k;_HX[65+k]=10+k;}
+const _hx=c=>c<128?_HX[c]:-1;
+let _rImg=null,_r32=null;
 function renderAll(){
-  const img=ctx.createImageData(WW,WH);const d=img.data;
-  for(let i=0;i<WT;i++){
-    const[r,g,b]=h2r(cells[i].c);
-    const col=i%WC,row=Math.floor(i/WC),bx=col*CS,by=row*CS;
-    for(let cy=0;cy<CS;cy++)for(let cx=0;cx<CS;cx++){
-      const pi=((by+cy)*WW+(bx+cx))*4;d[pi]=r;d[pi+1]=g;d[pi+2]=b;d[pi+3]=255;
+  if(!_rImg){_rImg=ctx.createImageData(WW,WH);_r32=new Uint32Array(_rImg.data.buffer);}
+  const d=_r32;
+  for(let row=0,i=0;row<WR;row++){const by=row*CS;
+    for(let col=0;col<WC;col++,i++){
+      const h=cells[i].c;let r,g,b;
+      if(h&&h.length>=7){
+        const a1=_hx(h.charCodeAt(1)),a2=_hx(h.charCodeAt(2)),b1=_hx(h.charCodeAt(3)),b2=_hx(h.charCodeAt(4)),c1=_hx(h.charCodeAt(5)),c2=_hx(h.charCodeAt(6));
+        if((a1|a2|b1|b2|c1|c2)>=0){r=a1*16+a2;g=b1*16+b2;b=c1*16+c2;}
+        else{const q=h2r(h);r=q[0]|0;g=q[1]|0;b=q[2]|0;}   // as before: unparsable → 0 (NaN in ImageData)
+      }else{r=128;g=128;b=128;}
+      const v=(0xff000000|(b<<16)|(g<<8)|r)>>>0,bx=col*CS;
+      for(let cy=0;cy<CS;cy++){let pi=(by+cy)*WW+bx;for(let cx=0;cx<CS;cx++)d[pi++]=v;}
     }
   }
-  ctx.putImageData(img,0,0);
+  ctx.putImageData(_rImg,0,0);
 }
 
 function renderOvl(){
   octx.clearRect(0,0,WW,WH);
 
-  // Only draw overlay if the user has made their own selections.
-  // Before any lasso: canvas is completely unbiased — pure pixels, nothing highlighted.
-  // After lasso: only the USER's own selections are shown, never previous layers.
+  // PROTOTYPE (glow rule): only what is being chosen right now is highlighted —
+  // the cells lassoed since the last Evolve (pendingSel). The moment Evolve is
+  // pressed it is cleared, so held / re-chosen cells never glow afterwards.
   // Previous layers (bots + prior contributors) only visible via the Reveal toggle.
-  if(userOwnedCells.size > 0){
-    for(let i=0;i<WT;i++){
-      if(!userOwnedCells.has(i))continue; // only user's own cells
+  if(pendingSel.size > 0){
+    // PROTOTYPE (perf): walk the owned cells only (was: all 594k cells twice per frame); same pixels
+    for(const i of pendingSel){
       const s=cells[i].s;if(s===0)continue;
       const score=affinityPerCell[i];
       let alpha,col;
@@ -1897,19 +1954,20 @@ function renderOvl(){
     // Pulsing boundary — only around user's own selections
     const pulse=0.4+0.6*Math.sin(Date.now()/360);
     octx.lineWidth=1;octx.beginPath();
-    for(let i=0;i<WT;i++){
-      if(!userOwnedCells.has(i)||cells[i].s===0)continue;
-      const s=cells[i].s;
-      const score=affinityPerCell[i];
+    let lastI=-1;   // one stroke at the end: its colour is the highest-index owned cell's (as the index-order loop did)
+    for(const i of pendingSel){
+      if(cells[i].s===0)continue;
+      if(i>lastI)lastI=i;
+      const col=i%WC,row=Math.floor(i/WC),x=col*CS,y=row*CS;
+      if(row===0||!pendingSel.has((row-1)*WC+col)||cells[(row-1)*WC+col].s===0){octx.moveTo(x,y);octx.lineTo(x+CS,y);}
+      if(row===WR-1||!pendingSel.has((row+1)*WC+col)||cells[(row+1)*WC+col].s===0){octx.moveTo(x,y+CS);octx.lineTo(x+CS,y+CS);}
+      if(col===0||!pendingSel.has(row*WC+(col-1))||cells[row*WC+(col-1)].s===0){octx.moveTo(x,y);octx.lineTo(x,y+CS);}
+      if(col===WC-1||!pendingSel.has(row*WC+(col+1))||cells[row*WC+(col+1)].s===0){octx.moveTo(x+CS,y);octx.lineTo(x+CS,y+CS);}
+    }
+    if(lastI>=0){const s=cells[lastI].s,score=affinityPerCell[lastI];
       const base=score>3?'rgba(74,170,106':'rgba(220,196,128';
       const a=s===3?.7+.3*pulse:s===2?.55+.45*pulse:.4+.4*pulse;
-      octx.strokeStyle=`${base},${a})`;
-      const col=i%WC,row=Math.floor(i/WC),x=col*CS,y=row*CS;
-      if(row===0||!userOwnedCells.has((row-1)*WC+col)||cells[(row-1)*WC+col].s===0){octx.moveTo(x,y);octx.lineTo(x+CS,y);}
-      if(row===WR-1||!userOwnedCells.has((row+1)*WC+col)||cells[(row+1)*WC+col].s===0){octx.moveTo(x,y+CS);octx.lineTo(x+CS,y+CS);}
-      if(col===0||!userOwnedCells.has(row*WC+(col-1))||cells[row*WC+(col-1)].s===0){octx.moveTo(x,y);octx.lineTo(x,y+CS);}
-      if(col===WC-1||!userOwnedCells.has(row*WC+(col+1))||cells[row*WC+(col+1)].s===0){octx.moveTo(x+CS,y);octx.lineTo(x+CS,y+CS);}
-    }
+      octx.strokeStyle=`${base},${a})`;}
     octx.stroke();
   }
 
@@ -1917,6 +1975,7 @@ function renderOvl(){
 }
 
 function refreshAffinityHud(){
+  if(window.DREAM&&DREAM.playing)return;   // PROTOTYPE: counters frozen at their pre-vision values while the vision plays
   const aEl=document.getElementById('hudA');
   aEl.textContent=userScore.toLocaleString();
   aEl.className='v'+(userScore>0?' positive':userScore<0?' negative':'');
@@ -1929,13 +1988,14 @@ function beginUserEra(){
   if(userEra)return;
   userEra=true;genesisAborted=true;
   genesisGenerations=generation;
-  userOwnedCells=new Set();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];
+  userOwnedCells=new Set();pendingSel.clear();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];
   const sf=document.getElementById('scoreFlash');if(sf){clearTimeout(sf._t);sf.className='';}
   refreshAffinityHud();updateStats();
   lsSet('germinal_genesis_seen','1');
 }
 function updateStats(){
-  const sc=stabCount(),s2=cells.filter(c=>c.s===2).length,s3=cells.filter(c=>c.s===3).length;
+  if(window.DREAM&&DREAM.playing)return;   // PROTOTYPE: counters frozen at their pre-vision values while the vision plays
+  let sc=0,s2=0,s3=0;for(let i=0;i<cells.length;i++){const v=cells[i].s;if(v>0){sc++;if(v===2)s2++;else if(v===3)s3++;}}   // PROTOTYPE (perf): one pass, same counts
   document.getElementById('hudG').textContent=generation.toLocaleString();
   const hg=document.getElementById('hsGen');
   if(hg)hg.title=`Canvas generation ${generation}. ${genesisGenerations} ran before you arrived (genesis or earlier contributors); each Evolve adds one.`;
@@ -1998,18 +2058,21 @@ function applyLasso(era){
   const minR=Math.max(0,Math.floor(Math.min(...wys)/CS));
   const maxR=Math.min(WR-1,Math.ceil(Math.max(...wys)/CS));
   let count=0,upgraded=0;
+  const lassoIdx=[];   // PROTOTYPE: the cells this lasso touched (glow while selecting; the dream's record)
   for(let r=minR;r<=maxR;r++){
     for(let c=minC;c<=maxC;c++){
       if(!ptInPoly(c*CS+CS/2,r*CS+CS/2,wp))continue;
       const i=r*WC+c;
-      if(era){if(cells[i].s>0){cells[i].s=0;userOwnedCells.delete(i);count++;}}
+      if(era){if(cells[i].s>0){cells[i].s=0;userOwnedCells.delete(i);pendingSel.delete(i);count++;}}
       else{
         if(cells[i].s===0){cells[i].s=1;userOwnedCells.add(i);count++;}
         else if(cells[i].s<3){cells[i].s++;upgraded++;count++;}
+        pendingSel.add(i);lassoIdx.push(i);
       }
     }
   }
-  if(!era&&count>0){
+  if(window.DREAM)DREAM.onLasso(era,lassoIdx);
+  if(!era&&count>0&&!(window.DREAM&&DREAM.playing)){   // PROTOTYPE: no flash (and its full repaint) for the vision's quick lassos; holds change, colours don't
     ctx.save();ctx.globalAlpha=upgraded>.3*count?.22:.15;
     ctx.fillStyle=upgraded>.3*count?'#ffeeaa':'#e8d090';
     ctx.fillRect(minC*CS,minR*CS,(maxC-minC+1)*CS,(maxR-minR+1)*CS);
@@ -2026,7 +2089,7 @@ function applyLasso(era){
     const totalOwned=userOwnedCells.size;
     const pct=totalOwned/WT;
     if(pct>TOLERANCE_MAX){
-      showToast(`⚠ Selection too broad (${Math.round(pct*100)}%) — zoom in for higher affinity`);
+      showToast((window.DREAM&&DREAM.overCapLine())||`⚠ Selection too broad (${Math.round(pct*100)}%) — zoom in for higher affinity`);
     }else if(count<20){
       showToast(`${count} cells — precise selection ✦`);
     }else if(count<100){
@@ -2627,6 +2690,7 @@ document.getElementById('msgText').addEventListener('input',()=>{document.getEle
 
 let _tt=null;
 function showToast(msg){
+  if(window.DREAM&&DREAM.playing)return;   // PROTOTYPE: the vision's own real lassos/Evolves stay quiet
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');
   clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('on'),2400);
 }
@@ -3301,20 +3365,23 @@ function hidePanel(id){
   setTimeout(()=>el.style.display='none',350);
 }
 
-window.dismissSim=function(){
+window.dismissSim=async function(){
   hidePanel('simPanel');
   beginUserEra();
+  if(window.DREAM){DREAM.afterIntro();return;}   // PROTOTYPE: "Dream it"
   // Show onboarding only if never seen before
   if(!localStorage.getItem('la_onboarded')){
     const ob=document.getElementById('onboard');
     ob.style.display='flex';ob.style.opacity='1';ob.style.pointerEvents='auto';
   }
 };
-window.skipSim=function(){
+window.skipSim=async function(){
   hidePanel('simPanel');
   genesisAborted=true;            // stop the scripted genesis loop
   if(generation<40){for(let k=0;k<20;k++)stepGenFast();renderAll();}
   beginUserEra();
+  // PROTOTYPE: "Dream it" (dream-ui.js) replaces the text onboarding panel.
+  if(window.DREAM){DREAM.afterIntro();return;}
   if(!localStorage.getItem('la_onboarded')){
     const ob=document.getElementById('onboard');
     ob.style.display='flex';ob.style.opacity='1';ob.style.pointerEvents='auto';
@@ -3360,14 +3427,24 @@ function getDeviceId(){
 }
 
 // ── Encode current canvas state for server ──
+// PROTOTYPE (option A, Brett-approved 2026-10-19): the ONLY change to main's
+// save format code. Main floored each channel to 5 bits (v>>3) on save and
+// decoded q<<3, so a colour could only ever get darker (≈ −3.5/channel per
+// share once the engine had moved it off the grid; white came back as 248).
+// Now: encode rounds to the NEAREST 5-bit level, decode expands by bit
+// replication ((q<<3)|(q>>2): 0→0, 31→255). Same RGB555 + held-bit layout
+// and size, so old rows load unchanged (decoded to the middle of their
+// level instead of its floor) and main can still read new rows.
+function q5(v){return Math.min(31,Math.round(v*31/255));}
+function x5(q){return (q<<3)|(q>>2);}
 function encodeForServer(){
   // Pack: high bit = stabilised, low 15 bits = quantised colour
   const arr = new Uint16Array(WT);
   for(let i=0;i<WT;i++){
     const c = cells[i].c||'#000000';
-    const r=parseInt(c.slice(1,3),16)>>3;
-    const g=parseInt(c.slice(3,5),16)>>3;
-    const b=parseInt(c.slice(5,7),16)>>3;
+    const r=q5(parseInt(c.slice(1,3),16));
+    const g=q5(parseInt(c.slice(3,5),16));
+    const b=q5(parseInt(c.slice(5,7),16));
     const q = ((r&31)<<10)|((g&31)<<5)|(b&31);
     arr[i] = (cells[i].s>0 ? 0x8000 : 0) | q;
   }
@@ -3386,9 +3463,9 @@ function decodeFromServer(b64){
     const arr=new Uint16Array(bytes.buffer);
     for(let i=0;i<Math.min(WT,arr.length);i++){
       const q=arr[i]&0x7FFF;
-      const r=((q>>10)&31)<<3;
-      const g=((q>>5)&31)<<3;
-      const b=(q&31)<<3;
+      const r=x5((q>>10)&31);
+      const g=x5((q>>5)&31);
+      const b=x5(q&31);
       cells[i]={
         c:'#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join(''),
         s:(arr[i]&0x8000)?1:0
@@ -3406,7 +3483,7 @@ async function saveToServer(){
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        theme: normTheme(document.getElementById('themeIn').value),
+        theme: apiTheme(),               // PROTOTYPE: namespaced, e.g. pb-love (save isolation)
         generation,
         parentId: currentShareId || null,
         cellData,
@@ -3421,6 +3498,7 @@ async function saveToServer(){
     // needed when the domain moves.
     const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
     currentShareUrl = `${base}app.html?c=${data.shareId}`;
+    if(window.DREAM)DREAM.onShare();
     return currentShareUrl;
   }catch(e){
     console.warn('Server save failed, using fallback:', e.message);
@@ -3438,7 +3516,8 @@ async function loadFromServer(shareId){
     // Apply received canvas state
     if(!decodeFromServer(data.cellData)) return false;
     generation = data.generation||1;
-    document.getElementById('themeIn').value = data.theme||'love';
+    // PROTOTYPE: stored theme is namespaced ("pb-love"): show "love".
+    document.getElementById('themeIn').value = window.GERM ? GERM.V.parseNsTheme(String(data.theme||'love')).base : (data.theme||'love');
     currentShareId = shareId;
 
     // Show "received canvas" banner
@@ -3464,7 +3543,7 @@ function showIncomingBanner(data){
   }
   // Server-provided strings are rendered as text only (never innerHTML): the
   // theme is user-chosen and stored by /api/canvas-save, so it is untrusted.
-  const theme = String(data.theme||'love');
+  const theme = window.GERM ? GERM.V.parseNsTheme(String(data.theme||'love')).base : String(data.theme||'love');
   const gen = Number.isFinite(Number(data.generation)) ? Number(data.generation) : '—';
   banner.textContent = '';
   const eyebrow = document.createElement('div');
@@ -3565,6 +3644,9 @@ germinal.studio`;
 
 // BOOT
 // ═══════════════════════════════════════════════════════════════════
+function bootApp(){
+if(window.GERM){const ti=document.getElementById('themeIn');ti.value=baseTheme(ti.value);}
+renderProtoBadge();
 fit();resizeLasso();
 initCells();renderAll();renderOvl();updateStats();updateProp();archiveState();
 attachSimButtons();
@@ -3606,7 +3688,7 @@ checkShareUrl().then(isShare => {
     beginUserEra();
     renderOvl();updatePropHUD && updatePropHUD();
     archiveState();
-    showToast('Zoom in · Lasso what resonates · Evolve');
+    if(!(window.DREAM&&DREAM.afterIntro()))showToast('Zoom in · Lasso what resonates · Evolve');
   }
 }).catch(err=>{
   // checkShareUrl failed (e.g. network) — fall back to genesis
@@ -3618,23 +3700,84 @@ checkShareUrl().then(isShare => {
     renderAll();updateStats();
   }); }, 200);
 });
+} // bootApp
+GERM_READY.then(bootApp);
+
+// ── PROTOTYPE (variant B): badge so testers know what they're on ──
+function renderProtoBadge(){
+  const lab=document.getElementById('protoLabel'),body=document.getElementById('protoBody');
+  if(!lab||!body||!window.GERM)return;
+  const V=GERM.V,t=themeNow();
+  lab.textContent='Prototype '+V.VARIANT+' · original engine';
+  body.textContent='';
+  const p=document.createElement('div');
+  p.textContent=V.VARIANT_BLURB+' Test canvas “'+V.nsTheme(t)+'” — separate from the real site.';
+  body.appendChild(p);
+  const lv=document.createElement('a');
+  lv.href='/live?theme='+encodeURIComponent(t);
+  lv.textContent='Open this live canvas →';lv.style.cssText='display:block;margin-top:6px;color:#c8a96e;';
+  body.appendChild(lv);
+}
+
+// ── PROTOTYPE (option A, Brett-approved 2026-10-19): everyone starts from the live canvas ──
+// Under main, a first-timer worked on their private intro canvas, and their
+// share replaced the live canvas (a wipe). Now, once the vision has run (or
+// been skipped / preempted), the working canvas is the theme's live canvas
+// (/api/display-live, always the branch's pb-* theme), so every share builds
+// on the shared work. The vision still runs on its own snapshot and restores
+// exactly; this happens after it. A share link keeps its own canvas (and its
+// parent). Empty live canvas or a failed fetch: the canvas the visitor
+// already has stays (main's start canvas: the intro, or quickStart's
+// priming). Lineage is unchanged: a save with no parent gets the theme's
+// latest save as parent, depth = live + 1 (lib/lineage.js).
+async function fetchLiveCanvas(theme,fetchFn,timeoutMs){
+  const f=fetchFn||fetch;
+  try{
+    const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),timeoutMs||2500);
+    const r=await f(`${API}/display-live?theme=${encodeURIComponent(theme)}`,{signal:ctl.signal,cache:'no-store'});
+    clearTimeout(t);
+    if(!r.ok)return{source:'error',status:r.status};
+    const d=await r.json();
+    if(!d||d.empty||!d.cellData)return{source:'empty'};
+    return{source:'live',cellData:d.cellData,generation:d.generation,contributorCount:d.contributorCount,lastUpdated:d.lastUpdated};
+  }catch(e){return{source:'error',error:String(e&&e.message||e)};}
+}
+function applyLiveCanvas(res){
+  if(!res||res.source!=='live'||!decodeFromServer(res.cellData))return false;
+  generation=Math.max(1,res.generation||1);return true;
+}
+function noteLiveStart(res,applied,via){
+  const n={source:res.source,applied:!!applied,via,generation:applied?generation:null,status:res.status,error:res.error};
+  window.__liveStart=n;return n;
+}
+let liveStart=null;
+function joinLiveCanvas(){
+  if(liveStart)return liveStart;   // once per page (later "Dream again" replays never reload)
+  if(currentShareId){liveStart=Promise.resolve(noteLiveStart({source:'share'},false,'share'));return liveStart;}
+  liveStart=fetchLiveCanvas(normTheme(document.getElementById('themeIn').value)).then(res=>new Promise(done=>{
+    const apply=()=>{
+      if(window.DREAM&&DREAM.playing){setTimeout(apply,150);return;}   // never under a playing vision (it restores its own snapshot)
+      const ok=applyLiveCanvas(res);
+      if(ok){genesisGenerations=generation;userOwnedCells=new Set();pendingSel.clear();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];   // as beginUserEra: a fresh start, on the live canvas
+        renderAll();updateStats();if(typeof archiveState==='function')archiveState();}
+      done(noteLiveStart(res,ok,'after-vision'));};
+    apply();}));
+  return liveStart;
+}
+window.joinLiveCanvas=joinLiveCanvas;
 
 // Returning visitors and kiosks skip genesis + onboarding and go straight to
 // the canvas, starting from the shared live canvas when available.
 async function quickStart(){
   document.getElementById('simPanel').classList.add('done');
   document.getElementById('onboard').classList.add('done');
-  let loaded=false;
-  try{
-    const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),2500);
-    const theme=normTheme(document.getElementById('themeIn').value);
-    const r=await fetch(`${API}/display-live?theme=${encodeURIComponent(theme)}`,{signal:ctl.signal});
-    clearTimeout(t);
-    if(r.ok){const d=await r.json();
-      if(d&&d.cellData&&decodeFromServer(d.cellData)){generation=Math.max(1,d.generation||1);loaded=true;}}
-  }catch(e){/* offline or no live canvas yet — fall back to local priming */}
+  // PROTOTYPE (option A): the same live-canvas loader as first-timers (joinLiveCanvas)
+  const res=await fetchLiveCanvas(normTheme(document.getElementById('themeIn').value));
+  const loaded=applyLiveCanvas(res);   // offline or no live canvas yet — fall back to local priming
+  liveStart=Promise.resolve(noteLiveStart(res,loaded,'quickStart'));
   if(!loaded){for(let k=0;k<30;k++){stepGenFast();if(k%5===4)await new Promise(r=>setTimeout(r,0));}}
   renderAll();beginUserEra();
+  if(window.DREAM&&DREAM.afterIntro())return;   // PROTOTYPE: first visit / kiosk attract → the vision
   showToast(KIOSK?'Drag to lasso what resonates · then press Evolve':'Welcome back — Zoom · Lasso · Evolve');
 }
 
@@ -3656,5 +3799,6 @@ function updatePropHUD(){
   if(hudP)hudP.textContent=pct+'%';
 }
 </script>
+<script src="/dream-ui.js"></script>
 </body>
 </html>
