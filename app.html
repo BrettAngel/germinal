@@ -1135,7 +1135,8 @@ window.GERM_READY=new Promise(res=>{window.__germReady=res;setTimeout(res,6000);
 <script type="module">
 import * as V from '/lib/variant.js';
 import * as D from '/lib/dream.js';
-window.GERM={V,D};
+import * as P from '/lib/patch.js';   // PREVIEW (live-wall compositor): the visitor's patch for the wall
+window.GERM={V,D,P};
 window.__germReady();
 </script>
 <script>
@@ -1989,6 +1990,7 @@ function beginUserEra(){
   userEra=true;genesisAborted=true;
   genesisGenerations=generation;
   userOwnedCells=new Set();pendingSel.clear();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];
+  if(typeof gpMarkBase==='function')gpMarkBase();   // PREVIEW: the hold levels this session starts from (the patch = what rises above them)
   const sf=document.getElementById('scoreFlash');if(sf){clearTimeout(sf._t);sf.className='';}
   refreshAffinityHud();updateStats();
   lsSet('germinal_genesis_seen','1');
@@ -3487,6 +3489,7 @@ async function saveToServer(){
         generation,
         parentId: currentShareId || null,
         cellData,
+        stabMap: gpPayload(),            // PREVIEW (live-wall compositor): this visitor's patch, "gp1.…" (lib/patch.js), or omitted
         contributorId: getDeviceId(),
       })
     });
@@ -3504,6 +3507,20 @@ async function saveToServer(){
     console.warn('Server save failed, using fallback:', e.message);
     return null; // caller will use image fallback
   }
+}
+
+// ── PREVIEW (live-wall compositor): the visitor's patch, sent in the save's stabMap ──
+// The cells this session newly held or refined (hold level above the session's
+// start), with their own 8-bit colours and levels — the RGB555 save keeps only a
+// held bit. Old servers/rows ignore it. Nothing here touches the engine.
+let gpBase=null;
+function gpMarkBase(){gpBase=new Uint8Array(WT);for(let i=0;i<WT;i++)gpBase[i]=cells[i]?cells[i].s:0;}
+function gpPayload(){
+  try{
+    if(!(window.GERM&&GERM.P))return undefined;
+    const p=GERM.P.extractPatch({cells,base:gpBase,owned:userOwnedCells,rounds:generationLog.length||1});
+    return p?GERM.P.encodePatch(p):undefined;
+  }catch(e){console.warn('patch payload skipped:',e.message);return undefined;}
 }
 
 // ── Load canvas from server share ID ──
@@ -3759,6 +3776,7 @@ function joinLiveCanvas(){
       if(window.DREAM&&DREAM.playing){setTimeout(apply,150);return;}   // never under a playing vision (it restores its own snapshot)
       const ok=applyLiveCanvas(res);
       if(ok){genesisGenerations=generation;userOwnedCells=new Set();pendingSel.clear();affinityPerCell=new Float32Array(WT);userScore=0;generationLog=[];   // as beginUserEra: a fresh start, on the live canvas
+        if(typeof gpMarkBase==='function')gpMarkBase();
         renderAll();updateStats();if(typeof archiveState==='function')archiveState();}
       done(noteLiveStart(res,ok,'after-vision'));};
     apply();}));
