@@ -348,12 +348,13 @@ const PAL = NEW_PALS;
 test('PAL above is app.html PALS, byte for byte', () => {
   for(const [k, v] of Object.entries(PAL)) assert.ok(app.includes(`  ${k}:${JSON.stringify(v).replace(/"/g, "'")},`), k);
 });
-test('dream forms rotate: heart first for love, then flower → leaf → fish → wave (tree, sun, eye drawable but out); all sized alike', () => {
+test('dream forms rotate: flower first (heart if no flower hues), then → leaf → fish → wave (tree, sun, eye drawable but out); all sized alike', () => {
   const el = t => f => D.formEligible(f, PAL[t]);
-  assert.equal(D.nextForm({ theme: 'love', eligible: el('love') }), 'heart', 'first visit on love: a heart');
-  assert.equal(D.nextForm({ theme: 'Love' }), 'heart');
+  assert.equal(D.nextForm({ theme: 'love', eligible: el('love') }), 'flower', 'first visit on love: a multi-colour flower');
+  assert.equal(D.nextForm({ theme: 'Love' }), 'flower');
+  assert.equal(D.nextForm({ theme: 'love', eligible: f => f !== 'flower' }), 'heart', 'no flower hues: a heart');
   const seq = []; let last = null; for(let k = 0; k < 8; k++){ last = D.nextForm({ last, theme: 'love', eligible: el('love') }); seq.push(last); }
-  assert.deepEqual(seq, ['heart', 'flower', 'leaf', 'fish', 'wave', 'heart', 'flower', 'leaf'], 'love: the flower right after the heart');
+  assert.deepEqual(seq, ['flower', 'leaf', 'fish', 'wave', 'heart', 'flower', 'leaf', 'fish'], 'love: flower first, then the rotation');
   assert.equal(D.nextForm({ last: 'eye', theme: 'love', eligible: el('love') }), 'heart', 'an old eye in storage moves on');
   assert.equal(D.nextForm({ last: 'sun', theme: 'love', eligible: el('love') }), 'heart', 'so does an old sun');
   assert.deepEqual(D.ROTATION, ['heart', 'flower', 'leaf', 'fish', 'wave']);
