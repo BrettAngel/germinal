@@ -1,6 +1,7 @@
 // Cloudflare Pages Function — GET /api/canvas-load/:id
 import { createClient } from '@supabase/supabase-js';
 import { validateShareId } from '../../../lib/validate.js';
+import { NS } from '../../../lib/variant.js';
 
 export async function onRequestGet(context){
   const { params, env } = context;
@@ -15,9 +16,11 @@ export async function onRequestGet(context){
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
     const { data, error } = await supabase
       .from('canvas_states').select('*').eq('short_id', shareId).single();
-    if(error || !data) return new Response(JSON.stringify({error:'Canvas not found'}),{status:404,headers});
-    try{ await supabase.from('canvas_states')
-      .update({ view_count:(data.view_count||0)+1 }).eq('short_id', shareId); }catch(e){}
+    // PROTOTYPE (variant B): only canvases saved under this branch's namespace
+    // are visible here, and the view_count bump is skipped, so production
+    // share rows are never read into, or written by, the preview.
+    if(error || !data || !String(data.theme||'').startsWith(NS))
+      return new Response(JSON.stringify({error:'Canvas not found'}),{status:404,headers});
     return new Response(JSON.stringify({
       shareId,
       theme:data.theme, generation:data.generation, depth:data.depth,
