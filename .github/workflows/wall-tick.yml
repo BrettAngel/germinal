@@ -1,0 +1,48 @@
+# Server-side live wall: one tick every 10 minutes (2 real Evolves → ~12 per
+# wall-hour, SIM4 N1). Every TV/screen just shows the frame this writes
+# (/live?kiosk=1 → /api/display-live?wall=1).
+# NOTE: GitHub runs scheduled workflows only from the DEFAULT branch, so the
+# cron starts once this file is on main. Until then: Actions tab → Run workflow
+# (or `gh workflow run wall-tick.yml --ref <branch>` once the file is also on main).
+# Secrets (preview DB first): PREVIEW_SUPABASE_URL, PREVIEW_SUPABASE_SERVICE_KEY.
+# Free: public repo (Actions minutes free), state kept in the Actions cache.
+name: Live wall tick
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: wall-tick          # never two ticks at once (the tick's compare-and-set is the second guard)
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Restore the wall state
+        uses: actions/cache/restore@v4
+        with:
+          path: .wall-state
+          key: wall-state-${{ github.run_id }}
+          restore-keys: wall-state-
+      - name: Tick
+        env:
+          SUPABASE_URL: ${{ secrets.PREVIEW_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.PREVIEW_SUPABASE_SERVICE_KEY }}
+        run: node tools/wall-tick.mjs --theme love --steps 2 --state .wall-state
+      - name: Save the wall state
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: .wall-state
+          key: wall-state-${{ github.run_id }}
