@@ -1,9 +1,9 @@
 # Server-side live wall: one tick every 10 minutes (2 real Evolves → ~12 per
 # wall-hour, SIM4 N1). Every TV/screen just shows the frame this writes
 # (/live?kiosk=1 → /api/display-live?wall=1).
-# Install: move to .github/workflows/ (see ops/workflows/README.md).
 # NOTE: GitHub runs scheduled workflows only from the DEFAULT branch, so the
-# cron starts once this file is on main. Until then: Actions tab → Run workflow.
+# cron starts once this file is on main. Until then: Actions tab → Run workflow
+# (or `gh workflow run wall-tick.yml --ref <branch>` once the file is also on main).
 # Secrets (preview DB first): PREVIEW_SUPABASE_URL, PREVIEW_SUPABASE_SERVICE_KEY.
 # Free: public repo (Actions minutes free), state kept in the Actions cache.
 name: Live wall tick
