@@ -584,3 +584,44 @@ test('start from the live canvas: empty live canvas or a failed fetch keeps main
   const quick = app.slice(app.indexOf('async function quickStart(){'), app.indexOf('// Kiosk: return to a fresh canvas'));
   assert.match(quick, /fetchLiveCanvas\(/); assert.match(quick, /liveStart=Promise\.resolve/);
 });
+
+// ── two flowers (Nov 12, Brett: circle the whole first flower to keep it while a second grows) ──
+const LOVE_PAL = ['#cc0033','#dd1144','#ff3366','#ff6688','#ff99aa','#aa1133','#ff8800','#ffcc00','#55aa22','#2a8a2a','#22bbaa','#33ccee','#3366ee','#8844dd','#dd33aa','#8b4513'];
+test('two flowers: flower 1, one keep loop + tap, flower 2 (its own picks, accelerating), step back; under ~35 s', () => {
+  for(const rm of [false, true]){
+    const T = D.dreamTimeline2(rm, [6, 12, 3], [6, 12, 3], 3, 3), C = T.cycles, K = T.keep;
+    assert.equal(K.phase, 'keep'); assert.equal(K.seg, 0); assert.equal(C.indexOf(K), T.seg2 - 1);
+    assert.ok(C.slice(0, T.seg2 - 1).every(c => c.seg === 0) && C.slice(T.seg2).every(c => c.seg === 1));
+    const s2 = C.slice(T.seg2); assert.deepEqual(s2.slice(0, 3).map(c => [c.phase, c.part, c.kk]), [['pick', 0, 0], ['pick', 1, 1], ['pick', 2, 2]]);
+    assert.ok(s2.slice(3).every(c => c.phase === 'cycle' && c.loops >= 1));
+    for(let k = 1; k < s2.length; k++) assert.ok(s2[k].dur < s2[k - 1].dur, 'flower 2 accelerates');
+    for(let k = 1; k < C.length; k++) assert.ok(Math.abs(C[k].t0 - C[k - 1].t1) < 1e-9, 'back to back');
+    for(const c of C) assert.ok(c.t0 < c.loopEnd && c.loopEnd < c.press && c.press < c.t1);
+    assert.ok(T.zout[0] >= C.at(-1).t1 - 1e-9 && T.fade[1] === T.end);
+    if(!rm) assert.ok(T.end >= 28 && T.end <= 35, 'normal ' + T.end); else assert.ok(T.end <= 17, 'reduced ' + T.end);
+  }
+});
+test('two flowers: the second has a different petal pair from the palette; it grows beside the first, clear of it, on the canvas', () => {
+  const p1 = D.resolveParts('flower', LOVE_PAL, 355), p2 = D.secondParts('flower', LOVE_PAL, 355, p1);
+  const pe = p => p.find(q => q.name === 'petals'), hd = (a, b) => { const x = Math.abs(a - b) % 360; return Math.min(x, 360 - x); };
+  assert.ok(p2 && p2.length === p1.length);
+  assert.ok(hd(pe(p2).hue, pe(p1).hue) >= 40 && hd(pe(p2).hue, pe(p1).hue2) >= 40, 'new petal colour ' + pe(p2).hue);
+  for(const h of [pe(p2).hue, pe(p2).hue2]) assert.ok(D.paletteHas(LOVE_PAL, h), 'a palette hue: ' + h);
+  assert.equal(D.secondParts('heart', LOVE_PAL, 355, D.resolveParts('heart', LOVE_PAL, 355)), null);
+  const S = D.formSize('flower'), WC = 900, WR = 660, rgb = () => [20, 20, 20];
+  for(const first of [{ fx: 150, fy: 300 }, { fx: 750, fy: 300 }, { fx: 450, fy: 200 }]){
+    const r = D.chooseSecondRegion({ first, S, WC, WR, rgb, parts: p2 });
+    assert.ok(r && Math.abs(r.fx - first.fx) >= S * 0.9, 'beside, with a gap: ' + (r && r.fx));
+    assert.ok(r.fx - S / 2 >= 0 && r.fx + S / 2 <= WC && r.fy - S / 2 >= 0 && r.fy + S / 2 <= WR, 'on the canvas');
+  }
+  const lp = D.ellipseLoop(50, 50, 20, 30, mulberry32(3));
+  for(const p of lp) assert.ok(((p.x - 50) / 20) ** 2 + ((p.y - 50) / 30) ** 2 >= 1 - 1e-9, 'the keep loop goes round the whole box');
+});
+test('dream-ui two flowers: real lasso round the first flower + real Evolve; captions; the step back frames both', () => {
+  const ui = fs.readFileSync(new URL('../dream-ui.js', import.meta.url), 'utf8');
+  assert.match(ui, /G\.secondParts\(/); assert.match(ui, /G\.chooseSecondRegion\(/); assert.match(ui, /G\.dreamTimeline2\(/);
+  assert.match(ui, /phase:'keep'/); assert.match(ui, /ellipseLoop\(/); assert.match(ui, /function twoView\(/);
+  assert.match(ui, /uni\(boxOf\(heldOf\(0\)\),boxOf\(heldOf\(1\)\)\)/, 'the final frame is the box of both flowers');
+  assert.equal(D.COPY.dreamKeep, 'Circle the whole flower to keep it.');
+  assert.match(D.COPY.dreamTwo('flower'), /two flowers/);
+});

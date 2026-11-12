@@ -1,5 +1,5 @@
 // PROTOTYPE (variant B branch) — "Dream it" onboarding (app.html).
-// A labelled ~17 s vision (18 real Evolves) played on the visitor's ACTUAL current canvas with
+// A labelled vision (~19 s; the flower ~33 s: two flowers, the first kept by a loop round it while the second grows) played on the visitor's ACTUAL current canvas with
 // the REAL mechanics, sped up:
 //   (a) zoom into the noise  (b) a visible pointer lassoes a few scattered
 //   red-ish pixels (real applyLasso → real holds)  (c) quick, accelerating
@@ -167,17 +167,13 @@ function makePlan(opts={}){
   let ineligible=null;if(!eligible(form)){ineligible=form;form='heart';}   // (tests asking for e.g. a tree on love get the heart, and are told why)
   const S=G.formSize(form);
   const hue=hueCache[theme]!=null?hueCache[theme]:(hueCache[theme]=G.themeFamilyHue({theme,rgb:cellRGB,WT}));
-  const parts=G.resolveParts(form,pal,hue,opts.partHues||null),multi=parts.length>1,labels=G.formLabels(form,S);
-  for(let i=0;i<labels.length;i++)if(labels[i]&&!parts.some(p=>p.label===labels[i]))labels[i]=0;   // an optional part the palette can't grow (the flower's stem) is left out
-  const LB=multi?G.formLobes(form,S,labels):null;
-  if(LB)for(const l of LB.lobes){const p=parts.find(pp=>pp.label===l.part+1);l.hue=p?G.lobeHue(p,form==='flower'&&p.name==='petals'?G.petalIndex(l.cx,l.cy,S):null):0;}   // each lobe's hue (alternate petals: hue2)
-  const gaps=G.formGaps(form,S,labels);
-  // every loop stays inside its own lobe (petal, centre, stem): at most SPILL cells past its edge, so the gaps stay unselected
-  const FL0=form==='flower',SPILL=opts.spill!=null?+opts.spill:1.0,LR=multi?G.lobeRooms(LB,S):null;
-  const lobeMask=multi?LB.lobes.map((l,k)=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=LB.id[i]===k+1?1:0;return m;}):null;
-  const partMask=parts.map(p=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=labels[i]===p.label?1:0;return m;});
+  const parts=G.resolveParts(form,pal,hue,opts.partHues||null),multi=parts.length>1;
+  // Nov 12 (Brett): the flower dream grows TWO flowers: the first, a loop round the whole first one (real holds), then a second beside it while the first holds
+  const FL0=form==='flower',parts2=FL0&&multi&&opts.two!==false?G.secondParts(form,pal,hue,parts):null;
+  const D2=Math.round(S*1.05+6);   // (G.chooseSecondRegion's spacing) room for the second flower on one side
   // guard: of a few regions far from the last dream, the one with the most family-coloured cells near the start (each part's own hue)
-  const reg=G.chooseDreamRegion({rand:rnd,last,S,WC,WR,rgb:cellRGB,hue,parts:multi?parts:null,tries:multi?24:12});
+  const reg=G.chooseDreamRegion({rand:rnd,last,S,WC,WR,rgb:cellRGB,hue,parts:multi?parts:null,tries:multi?24:12,margin:parts2?40+D2:40});
+  const reg2=parts2?G.chooseSecondRegion({first:reg,S,WC,WR,rgb:cellRGB,parts:parts2}):null,two=!!reg2;
   ls.set(LS_LAST,JSON.stringify({fx:reg.fx,fy:reg.fy,form}));
   const mask=G.formMask(form,S);
   const {w,h}=vpSize();const zD=Math.min(ZMAX,18/CS),fv=fitView();
@@ -189,12 +185,24 @@ function makePlan(opts={}){
   // first picks: a few scattered red-ish pixels near the form's centre, in view
   const cw=Math.floor(w/(zD*CS)),ch=Math.floor(h/(zD*CS));
   const ww=Math.max(6,Math.min(cw-6,16)),wh=Math.max(6,Math.min(Math.floor(ch*0.45),16));
+  const SPILL=opts.spill!=null?+opts.spill:1.0,pickR=1.35;
+  // one flower's (or form's) geometry at a region: its parts' labels, lobes, rooms, and where its first picks go (picks() re-reads the canvas)
+  const geom=(parts,reg)=>{
+  const labels=G.formLabels(form,S);
+  for(let i=0;i<labels.length;i++)if(labels[i]&&!parts.some(p=>p.label===labels[i]))labels[i]=0;   // an optional part the palette can't grow (the flower's stem) is left out
+  const LB=multi?G.formLobes(form,S,labels):null;
+  if(LB)for(const l of LB.lobes){const p=parts.find(pp=>pp.label===l.part+1);l.hue=p?G.lobeHue(p,form==='flower'&&p.name==='petals'?G.petalIndex(l.cx,l.cy,S):null):0;}   // each lobe's hue (alternate petals: hue2)
+  const gaps=G.formGaps(form,S,labels);
+  // every loop stays inside its own lobe (petal, centre, stem): at most SPILL cells past its edge, so the gaps stay unselected
+  const LR=multi?G.lobeRooms(LB,S):null;
+  const lobeMask=multi?LB.lobes.map((l,k)=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=LB.id[i]===k+1?1:0;return m;}):null;
+  const partMask=parts.map(p=>{const m=new Float32Array(S*S);for(let i=0;i<m.length;i++)m[i]=labels[i]===p.label?1:0;return m;});
   // the eye's pupil stays open: no lasso ever reaches it (formHole), loops near it shrink
   const tune=G.formTuning(form),hb=G.formHole(form,S),hole=hb?{cx:hb.cx,cy:hb.cy,r:hb.r}:null;
   const HX=reg.fx-(S>>1)+(hole?hole.cx:0),HY=reg.fy-(S>>1)+(hole?hole.cy:0);
   // pointer choice only (no colour is changed): the first picks are clearly theme-coloured pixels
   // (red for love) when the spot has them, never near-black ones; the engine then does the rest
-  const pickR=1.35,nearHole=hole?(i=>Math.hypot(i%WC+.5-HX,((i/WC)|0)+.5-HY)<hole.r+1.25*pickR+0.75):null;
+  const nearHole=hole?(i=>Math.hypot(i%WC+.5-HX,((i/WC)|0)+.5-HY)<hole.r+1.25*pickR+0.75):null;
   const X0=reg.fx-(S>>1),Y0=reg.fy-(S>>1);
   const lobeWorld=LB?LB.lobes.map((l,q)=>{const o=[];for(let j=0;j<S*S;j++)if(LB.id[j]===q+1)o.push((Y0+((j/S)|0))*WC+X0+j%S);return o;}):null;
   const labelAt=i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;return x>=0&&y>=0&&x<S&&y<S?labels[y*S+x]:0;};
@@ -204,7 +212,7 @@ function makePlan(opts={}){
   const roomOf=multi?(k=>i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;return x>=0&&y>=0&&x<S&&y<S?roomMap[k][y*S+x]:1e9;}):(()=>null);
   const roomOfLobe=multi?(q=>i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;if(!(x>=0&&y>=0&&x<S&&y<S))return 0;const j=y*S+x;return LB.id[j]===q+1?LR[q][j]+SPILL:0;}):(()=>null);
   const lobeRoomAt=i=>{const x=i%WC-X0,y=((i/WC)|0)-Y0;if(!(x>=0&&y>=0&&x<S&&y<S))return 0;const j=y*S+x,q=LB.id[j];return q?LR[q-1][j]:0;};
-  const pks=parts.map((part,k)=>{
+  const picks=()=>parts.map((part,k)=>{
     const vivid=(i,h=part.hue)=>G.familyScore(...cellRGB(i),h)>=0.3,inPart=i=>!multi||labelAt(i)===part.label;
     const exclude=i=>(nearHole&&nearHole(i))||(!part.hue2&&!vivid(i))||!inPart(i)||(FL0&&lobeRoomAt(i)+SPILL<1.25*pickR+0.75);   // a pick's loop stays in its lobe too
     const pk={picks:[],hue:-1,colour:[0,0,0]};
@@ -221,31 +229,46 @@ function makePlan(opts={}){
       const c=[];for(let y=0;y<S;y++)for(let x=0;x<S;x++)if(labels[y*S+x]===part.label){const i=(Y0+y)*WC+X0+x;c.push([G.familyScore(...cellRGB(i),part.hue),i]);}
       c.sort((a,b)=>b[0]-a[0]);for(const [,i] of c){if(pk.picks.length>=3)break;if(pk.picks.every(p=>Math.max(Math.abs(p%WC-i%WC),Math.abs(((p/WC)|0)-((i/WC)|0)))>=3))pk.picks.push(i);}}
     return pk;});
+  const pks=picks();
+  return{fx:reg.fx,fy:reg.fy,region:reg,parts,labels,partMask,roomOf,roomOfLobe,gaps,lobeWorld,LB,lobeMask,hole,HX,HY,pks,pickFn:picks,
+    picks:pks.flatMap(p=>p.picks),pickByPart:pks.map(p=>p.picks.length),partCells:parts.map(()=>new Set()),lobeCells:multi?LB.lobes.map(()=>new Set()):null};};
+  const tune=G.formTuning(form);
+  const g1=geom(parts,reg),g2=two?geom(parts2,reg2):null,pks=g1.pks;
   const pk={picks:pks.flatMap(p=>p.picks),hue:pks[0].hue,colour:pks[0].colour};
-  const tl=G.dreamTimeline(RM,pks.map(p=>Math.max(1,p.picks.length)),parts.length,opts.config||null);   // opts.config: evaluation only
+  const pn=g=>g.pks.map(p=>Math.max(1,p.picks.length));
+  const tl=two?G.dreamTimeline2(RM,pn(g1),pn(g2),parts.length,parts2.length):G.dreamTimeline(RM,pn(g1),parts.length,opts.config||null);   // opts.config: evaluation only
   // strokes: every lasso and every Evolve tap, in order, with its time slot. Cycle 0 = the first
   // scattered picks; every later cycle circles new cells in the grown zone of influence. After
-  // every lasso the pointer goes to Evolve and taps it.
+  // every lasso the pointer goes to Evolve and taps it. Two flowers: the keep cycle is one loop
+  // round the whole first flower; the second flower's picks are re-read when it starts (seg 1).
   const strokes=[],FL=form==='flower',loopMul=opts.loopMul!=null?+opts.loopMul:(FL?2:1);   // the flower: twice the loops, many of them one-cell picks
-  const nC=tl.cycles.length;
   tl.cycles.forEach((c,k)=>{
-    if(c.phase==='pick'){const pp=pks[c.part]?pks[c.part].picks:[],np=pp.length,pd=(c.loopEnd-c.t0)/Math.max(1,np);
-      pp.forEach((p,q)=>strokes.push({kind:'loop',phase:'pick',cycle:k,part:c.part,t0:c.t0+q*pd,t1:c.t0+(q+1)*pd,centre:p,r:pickR}));}
-    else{const nL=multi?Math.max(1,Math.round(c.loops*loopMul)):c.loops,L=(c.loopEnd-c.t0)/nL,r=G.cycleLoopR(k,nC,zP,zC,CS);   // loops grow in screen px across the cycles
-      for(let j=0;j<nL;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r,centre:null});}
-    strokes.push({kind:'evo',cycle:k,t0:c.loopEnd,t1:c.press,ease:RM?0:c.ease});
+    const seg=c.seg||0,g=seg?g2:g1,kk=c.kk!=null?c.kk:k,nC=c.n||tl.cycles.length;
+    if(c.phase==='keep'){const tr=c.dur*0.12;strokes.push({kind:'loop',phase:'keep',cycle:k,seg,t0:c.t0+tr,t1:c.loopEnd,centre:null,keep:true});}
+    else if(c.phase==='pick'){const pp=g.pks[c.part]?g.pks[c.part].picks:[],np=pp.length,pd=(c.loopEnd-c.t0)/Math.max(1,np);
+      pp.forEach((p,q)=>strokes.push({kind:'loop',phase:'pick',cycle:k,seg,part:c.part,q,t0:c.t0+q*pd,t1:c.t0+(q+1)*pd,centre:p,r:pickR}));}
+    else{const nL=multi?Math.max(1,Math.round(c.loops*loopMul)):c.loops,L=(c.loopEnd-c.t0)/nL,r=G.cycleLoopR(kk,nC,zP,zC,CS);   // loops grow in screen px across the cycles
+      for(let j=0;j<nL;j++)strokes.push({kind:'loop',phase:'cycle',cycle:k,seg,j,t0:c.t0+j*L,t1:c.t0+(j+1)*L,r,centre:null});}
+    strokes.push({kind:'evo',cycle:k,seg,t0:c.loopEnd,t1:c.press,ease:RM?0:c.ease});
   });
-  return{S,fx:reg.fx,fy:reg.fy,form,hue,region:reg,mask,tune,hole,HX,HY,picks:pk.picks,parts,multi,labels,partMask,roomOf,roomOfLobe,gaps,lobeWorld,ineligible,headDy:FL?G.FLOWER.cy/2*S:0,frameW:FL?0.72:0.85,frameH:FL?0.52:0.6,frameDy:FL?0.05:0,   // the flower steps back a little further, below the caption
-LB,lobeMask,purity:opts.purity||0.4,pureCount:opts.pureCount!=null?!!opts.pureCount:form==='flower',lobePurity:opts.lobePurity||(form==='flower'?0.7:opts.purity||0.4),grades:opts.grades||(form==='flower'?[1,0.75]:[1,0.6,0.3,0]),singlePure:opts.singlePure!=null?!!opts.singlePure:true,   // pure loops for every form (Oct 18 evening; opts: evaluation only)
-    
-    partCells:parts.map(()=>new Set()),lobeCells:multi?LB.lobes.map(()=>new Set()):null,pickByPart:pks.map(p=>p.picks.length),pickBin:pk.hue,colour:pk.colour,zD,zC,zF,zP,fit:fv,tl,strokes,si:0,
-    cyc:[],ptr:null,pressUntil:-1,tapAt:-1,taps:[],easeT:null,lit:[],frozen:false,genMs:[],lassosApplied:0,evolves:0,
-    caps:G.COPY.dream.map((c,i)=>typeof c==='function'?c(form):(i===2&&multi?G.COPY.dreamMulti:c)),
+  const caps=G.COPY.dream.map((c,i)=>typeof c==='function'?(two?G.COPY.dreamTwo(form):c(form)):(i===2&&multi?G.COPY.dreamMulti:c));
+  if(two)caps.push(G.COPY.dreamKeep,G.COPY.dreamSecond);   // 6: the circle round the first flower, 7: the second grows
+  return{S,form,hue,mask,tune,multi,ineligible,...g1,segs:two?[g1,g2]:null,seg:0,two,K:two?tl.keep:null,
+    headDy:FL?G.FLOWER.cy/2*S:0,frameW:FL?0.72:0.85,frameH:FL?0.52:0.6,frameDy:FL?0.05:0,   // the flower steps back a little further, below the caption
+    purity:opts.purity||0.4,pureCount:opts.pureCount!=null?!!opts.pureCount:form==='flower',lobePurity:opts.lobePurity||(form==='flower'?0.7:opts.purity||0.4),grades:opts.grades||(form==='flower'?[1,0.75]:[1,0.6,0.3,0]),singlePure:opts.singlePure!=null?!!opts.singlePure:true,   // pure loops for every form (Oct 18 evening; opts: evaluation only)
+    pickBin:pk.hue,colour:pk.colour,zD,zC,zF,zP,fit:fv,tl,strokes,si:0,
+    cyc:[],ptr:null,pressUntil:-1,tapAt:-1,taps:[],easeT:null,lit:[],frozen:false,genMs:[],lassosApplied:0,evolves:0,caps,
     pauseAt:Array.isArray(opts.pauseAt)?opts.pauseAt.slice().sort((a,b)=>a-b):null};   // opts.pauseAt: tests only
 }
+// two flowers: the plan's geometry is the current flower's (seg 0 / 1); the second's picks are re-read from the canvas as it starts
+function useSeg(k){const P=plan;if(!P.segs||P.seg===k)return;const g=P.segs[k];
+  if(k===1&&!g.reread){const np=g.pickFn();g.reread=true;g.pks=np;g.picks=np.flatMap(p=>p.picks);g.pickByPart=np.map(p=>p.picks.length);
+    for(const s of P.strokes)if(s.seg===1&&s.phase==='pick'){s.centre=np[s.part]&&np[s.part].picks[s.q]!=null?np[s.part].picks[s.q]:null;s.pts=null;}}
+  Object.assign(P,g);P.seg=k;}
 function capAt(t){const T=plan.tl;
   if(t<T.pick[0]) return t<T.zin[1]*0.5?0:1;
   if(t<T.cycles[Math.min(T.cycles.length-1,plan.parts.length)].t0) return RM&&t<T.pick[0]+0.6?0:2;
+  if(plan.two&&t>=plan.K.t0&&t<T.zout[0]) return t<plan.K.t1?6:7;   // two flowers: circle the first, then the second grows
   if(t<T.zout[0]) return 3;
   if(t<T.fade[0]) return 4;
   return 5;
@@ -308,13 +331,15 @@ function formStats(cl){
   return{held:cl.length,...(parts?{parts}:{}),...(lobes?{lobes}:{}),...(gn?{gap:{cells:gn,unheld:+(gu/gn).toFixed(3),partHue:+(gh/gn).toFixed(3)}}:{}),inForm:inF,outForm:cl.length-inF,inHole,formCover:+(inF/formN).toFixed(3),redInForm:+(red/formN).toFixed(3)};
 }
 function cycleTargets(k){
-  const P=plan;if(P.cyc[k])return P.cyc[k];
+  const P=plan;useSeg(P.tl.cycles[k].seg||0);if(P.cyc[k])return P.cyc[k];
   const t0=performance.now(),r=cycleTargets0(k);P.tgtMs=(P.tgtMs||0)+performance.now()-t0;return r;
 }
 function cycleTargets0(k){
   const P=plan;
   const cl=dreamCluster(),c=P.tl.cycles[k],st=P.strokes.filter(s=>s.cycle===k&&s.kind==='loop'&&s.phase==='cycle');
   if(c.phase==='pick')return(P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,picks:true,targets:[],before:formStats(cl),genBefore:generation});
+  if(c.phase==='keep')return(P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:1,keep:true,targets:[],before:formStats(cl),genBefore:generation});   // the loop round the whole first flower
+  const kb=c.kk!=null?c.kk:k;   // the cycle's index within its own flower
   const r=st.length?st[0].r:2;
   if(P.multi){   // loops shared between the form's lobes (each petal / ray, the centre…): each goes where the most is still to grow
     const X0=P.fx-(P.S>>1),Y0=P.fy-(P.S>>1),LBs=P.LB.lobes;
@@ -326,7 +351,7 @@ function cycleTargets0(k){
     LBs.forEach((l,q)=>{if(!cnt[q])return;const p=P.parts[l.part];
       const seed=held[q].length?held[q]:(P.pureCount?P.lobeWorld[q]:[(Y0+Math.round(l.cy))*WC+X0+Math.round(l.cx)]);   // a lobe nobody has reached yet: from its middle (pure loops: anywhere in it)
       const tq=D().chooseCycleTargetsGraded({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:seed,
-        WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],bias:1.0+k*0.25,fill:1.2,hue:l.hue,loopR:r,strict:true,room:P.pureCount?P.roomOfLobe(q):P.roomOf(l.part),purity:P.lobePurity,grades:P.grades,pureCount:P.pureCount,minR:P.pureCount?0.7:0.99,minSep:P.pureCount?2:Math.max(3,Math.round(r*1.3))});
+        WC,WR,mask:P.lobeMask[q],S:P.S,fx:P.fx,fy:P.fy,ring:Math.max(2,Math.round(r*0.9)),count:cnt[q],bias:1.0+kb*0.25,fill:1.2,hue:l.hue,loopR:r,strict:true,room:P.pureCount?P.roomOfLobe(q):P.roomOf(l.part),purity:P.lobePurity,grades:P.grades,pureCount:P.pureCount,minR:P.pureCount?0.7:0.99,minSep:P.pureCount?2:Math.max(3,Math.round(r*1.3))});
       tq.forEach(o=>{o.part=l.part;o.lobe=q;all.push(o);});});
     P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:all.map(o=>o.i),perLobe:cnt,targetRed:+(all.reduce((s,o)=>s+o.red,0)/Math.max(1,all.length)).toFixed(3),
       targetsInForm:all.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};
@@ -334,7 +359,7 @@ function cycleTargets0(k){
     return P.cyc[k];
   }
   const tg=D().chooseCycleTargetsGraded({rgb:cellRGB,isHeld:i=>cells[i].s>0,cluster:cl.length?cl:P.picks,WC,WR,mask:P.mask,S:P.S,fx:P.fx,fy:P.fy,
-    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+k*0.25,fill:P.tune.fill,hue:P.hue,hole:P.hole,loopR:r,purity:P.singlePure?P.purity:0});
+    ring:Math.max(2,Math.round(r*0.9)),count:c.loops,minSep:Math.max(3,Math.round(r*1.3)),bias:1.0+kb*0.25,fill:P.tune.fill,hue:P.hue,hole:P.hole,loopR:r,purity:P.singlePure?P.purity:0});
   P.cyc[k]={k,dur:+c.dur.toFixed(3),loops:c.loops,targets:tg.map(o=>o.i),targetRed:+(tg.reduce((s,o)=>s+o.red,0)/Math.max(1,tg.length)).toFixed(3),
     targetsInForm:tg.filter(o=>o.inForm).length,before:formStats(cl),genBefore:generation};
   tg.forEach((o,j)=>{if(st[j]){st[j].centre=o.i;if(o.r)st[j].r=o.r;}});   // near the pupil a loop is smaller
@@ -359,17 +384,22 @@ function litHeld(list,t){
 }
 const toScreen=p=>({x:p.x*CS*zoom+panX,y:p.y*CS*zoom+panY});
 function strokePts(s){
+  useSeg(s.seg||0);
+  if(!s.pts&&s.keep){   // the whole first flower: a hand-drawn loop round the box of everything it holds (its lobes), never a cell outside the canvas
+    const b=boxOf(heldOf(0))||formBox(0),cx=(b.x0+b.x1+1)/2,cy=(b.y0+b.y1+1)/2;
+    s.pts=D().ellipseLoop(cx,cy,((b.x1-b.x0+1)/2+1)*1.12,((b.y1-b.y0+1)/2+1)*1.1);}
   if(!s.pts){if(s.centre==null)return null;s.pts=D().loopPoints(s.centre%WC,(s.centre/WC)|0,s.r);}
   return s.pts;
 }
 function applyStroke(s){   // the real thing: a lasso through the app's own applyLasso, or one engine generation
-  const P=plan;
+  const P=plan;useSeg(s.seg||0);
   if(s.kind==='loop'){
     cycleTargets(s.cycle);   // (cycle 0: records the cluster before the first pick)
     const pts=strokePts(s);if(!pts)return 0;
     const t1=performance.now();
     const before=P.multi?new Set(pendingSel):null;
     lassoPts=pts.map(toScreen);applyLasso(false);lassoPts=[];P.lassosApplied++;P.lit=[...pendingSel];
+    if(s.keep)window.__dreamLast.keep={cells:pendingSel.size,t:+((performance.now()-T0)/1000).toFixed(2)};
     if(P.multi&&s.part!=null){const X0=P.fx-(P.S>>1),Y0=P.fy-(P.S>>1);
       let lobe=s.lobe;if(lobe==null){const x=s.centre%WC-X0,y=((s.centre/WC)|0)-Y0;lobe=x>=0&&y>=0&&x<P.S&&y<P.S?P.LB.id[y*P.S+x]-1:-1;}
       for(const i of pendingSel)if(!before.has(i)){P.partCells[s.part].add(i);if(lobe>=0)P.lobeCells[lobe].add(i);}}   // which part / lobe this loop grew
@@ -403,6 +433,7 @@ function freeze(){   // the rewind: the last frame of the vision fades out over 
   P.easeT=null;wctx.clearRect(0,0,WW,WH);wctx.drawImage(cvs,0,0);   // the last frame: pixels only, nothing glows
   dw.style.opacity='1';dw.style.display='block';
   window.__dreamLast.final=formStats(dreamCluster());
+  if(P.two){useSeg(0);const f1=formStats(dreamCluster());useSeg(1);window.__dreamLast.finalSegs=[f1,window.__dreamLast.final];}   // both flowers, last frame
   restoreState();
   window.__dreamLast.restoredAt=+((performance.now()-T0)/1000).toFixed(2);
   return performance.now()-t1;
@@ -424,7 +455,9 @@ function frame(now){
   if(t>=T.fade[0]&&!P.frozen){pms+=freeze();}
   // 2. view: zoom in → hold deep for the picks → ease out as the cycles run → step back
   const {w,h}=vpSize(),vc={x:w/2,y:h/2};let fwx=(P.fx+.5)*CS,fwy=(P.fy+.5)*CS;
-  const C0=T.cycles[Math.min(1,T.cycles.length-1)].t0,C1=T.cycles[T.cycles.length-1].t1;
+  if(P.two&&t>=P.K.t0)twoView(t,w,h);   // two flowers: the circle, the second flower beside the first, the step back to both
+  else{
+  const C0=T.cycles[Math.min(1,T.cycles.length-1)].t0,C1=P.two?P.K.t0:T.cycles[T.cycles.length-1].t1;
   // the step back centres on the form as it actually grew (its held cells' box)
   if(t>=T.zout[0]&&!P.fc){const cl=dreamCluster();let x0=1e9,y0=1e9,x1=-1,y1=-1;for(const i of cl){const x=i%WC,y=(i/WC)|0;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}
     P.fc=x1>=0?{x:((x0+x1)/2+.5)*CS,y:((y0+y1)/2+.5)*CS}:{x:fwx,y:fwy};
@@ -453,6 +486,7 @@ function frame(now){
     const e=RM?0:ease(ph(t,T.fade));z=Math.exp(Math.log(P.zF)+(Math.log(P.fit.z)-Math.log(P.zF))*e);
     const s1x=fwx*P.fit.z+P.fit.px,s1y=fwy*P.fit.z+P.fit.py;const sx=vc.x+(s1x-vc.x)*e,sy=vc.y+(s1y-vc.y)*e;
     setView(z,sx-fwx*z,sy-fwy*z);
+  }
   }
   if(P.frozen)dw.style.opacity=String(1-(RM?ph(t,T.fade):ease(ph(t,T.fade))));
   else if(P.easeT){if(t>=P.easeT.b){P.easeT=null;dw.style.display='none';}else dw.style.opacity=String(1-ease(ph(t,[P.easeT.a,P.easeT.b])));}
@@ -492,6 +526,29 @@ function frame(now){
   if(t>=T.end){end('completed',true);return;}
   raf=requestAnimationFrame(frame);
 }
+// two flowers: boxes (cells) of what a flower holds / its form, and the view that frames a box
+function boxOf(list){let x0=1e9,y0=1e9,x1=-1,y1=-1;for(const i of list){const x=i%WC,y=(i/WC)|0;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}return x1<0?null:{x0,y0,x1,y1};}
+function heldOf(seg){const g=plan.segs[seg],o=[];if(g.lobeCells)for(const set of g.lobeCells)for(const i of set)if(cells[i].s>0)o.push(i);return o;}
+function formBox(seg){const g=plan.segs[seg],S=plan.S,F=D().FLOWER;return{x0:Math.round(g.fx-S*0.34),x1:Math.round(g.fx+S*0.34),y0:Math.round(g.fy+(F.cy-F.pd-F.pa)*S/2),y1:Math.round(g.fy+F.s1*S/2)};}
+const uni=(a,b)=>!a?b:!b?a:{x0:Math.min(a.x0,b.x0),y0:Math.min(a.y0,b.y0),x1:Math.max(a.x1,b.x1),y1:Math.max(a.y1,b.y1)};
+function vOf(b,fw,fh,w,h,dy){const bw=(b.x1-b.x0+1)*CS,bh=(b.y1-b.y0+1)*CS;
+  return{x:((b.x0+b.x1)/2+.5)*CS,y:((b.y0+b.y1)/2+.5)*CS,z:Math.max(plan.fit.z*1.2,Math.min(plan.zD,w*fw/bw,h*fh/bh)),dy};}
+function twoView(t,w,h){
+  const P=plan,T=P.tl,K=P.K;
+  if(!P.vA)P.vA={x:(w/2-panX)/zoom,y:(h/2-panY)/zoom,z:zoom,dy:0};
+  if(!P.vK)P.vK=vOf(boxOf(heldOf(0))||formBox(0),0.6,0.6,w,h,0.04);                       // the whole first flower, for the circle
+  if(!P.vB)P.vB=vOf(uni(boxOf(heldOf(0))||formBox(0),formBox(1)),0.92,0.72,w,h,0.04);    // both: the first holds while the second grows
+  if(t>=T.zout[0]&&!P.vF){P.vF=vOf(uni(boxOf(heldOf(0)),boxOf(heldOf(1)))||uni(formBox(0),formBox(1)),0.6,0.5,w,h,0.05);   // the step back: both, small
+    P.zF=P.vF.z;window.__dreamLast.zF=+P.zF.toFixed(2);}
+  let A,B,e;
+  if(t<K.press){A=P.vA;B=P.vK;e=ph(t,[K.t0,K.t0+0.5]);}
+  else if(t<T.zout[0]){A=P.vK;B=P.vB;e=ph(t,[K.press,K.t1+0.45]);}
+  else if(t<T.fade[0]){A=P.vB;B=P.vF;e=ph(t,T.zout);}
+  else{const f=P.fit;A=P.vF;B={x:(w/2-f.px)/f.z,y:(h/2-f.py)/f.z,z:f.z,dy:0};e=ph(t,T.fade);}
+  e=RM?(t>=T.fade[0]?0:1):ease(e);
+  const z=Math.exp(Math.log(A.z)+(Math.log(B.z)-Math.log(A.z))*e),x=A.x+(B.x-A.x)*e,y=A.y+(B.y-A.y)*e,dy=(A.dy+(B.dy-A.dy)*e)*h;
+  setView(z,w/2-x*z,h/2+dy-y*z);
+}
 const dbg=(w,ms)=>{if(ms>6&&window.__dreamDbg)__dreamDbg.push([+(T0?(performance.now()-T0)/1000:0).toFixed(2),w,+ms.toFixed(1)]);};
 function drawPointer(x,y,down){   // on the full-window layer (sizePtr has set viewport coordinates)
   const c=pctx;c.save();
@@ -521,7 +578,7 @@ function play(opts={}){
   if(opts.replay){rec.replays++;}
   if(rec.dream==='none')rec.dream='playing';
   const T=plan.tl;
-  window.__dreamLast={playing:true,mode:'engine',usedEngine:true,maskReveal:false,form:plan.form,parts:plan.parts.map(p=>({name:p.name,hue:p.hue})),pickByPart:plan.pickByPart,ineligible:plan.ineligible,S:plan.S,hue:plan.hue,region:plan.region,fx:plan.fx,fy:plan.fy,picks:plan.picks.length,pickBin:plan.pickBin,colour:plan.colour,
+  window.__dreamLast={playing:true,mode:'engine',usedEngine:true,maskReveal:false,form:plan.form,two:plan.two,parts:plan.parts.map(p=>({name:p.name,hue:p.hue,hue2:p.hue2})),parts2:plan.two?plan.segs[1].parts.map(p=>({name:p.name,hue:p.hue,hue2:p.hue2})):null,region2:plan.two?plan.segs[1].region:null,pickByPart:plan.pickByPart,ineligible:plan.ineligible,S:plan.S,hue:plan.hue,region:plan.region,fx:plan.fx,fy:plan.fy,picks:plan.picks.length,pickBin:plan.pickBin,colour:plan.colour,
     reducedMotion:RM,sumBefore,genBefore:generation,
     zF:+plan.zF.toFixed(2),zC:+plan.zC.toFixed(2),taps:[],
     timeline:{picks:[+T.pick[0].toFixed(2),+T.pick[1].toFixed(2)],cycles:T.cycles.map(c=>+c.dur.toFixed(2)),loops:T.cycles.map(c=>c.loops),ease:T.cycles.map(c=>c.ease),
