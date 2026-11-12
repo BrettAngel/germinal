@@ -229,7 +229,7 @@ test('wall tick: state snapshot → restore keeps cells, hold levels and patch o
   assert.deepEqual([...R.C.owner].filter(o => o > 0).length, [...W.C.owner].filter(o => o > 0).length);
   assert.deepEqual(R.C.summary(), W.C.summary());
   const tk = read('tools/wall-tick.mjs'); assert.match(tk, /zbupbejkjpdwrzulxydj/, 'refuses the production project unless explicitly allowed');
-  const wf = read('ops/workflows/wall-tick.yml'); assert.match(wf, /cron: '\*\/10 \* \* \* \*'/); assert.match(wf, /PREVIEW_SUPABASE_SERVICE_KEY/); assert.match(wf, /group: wall-tick/);
-  assert.match(read('ops/workflows/keepalive.yml'), /cron: '0 9 \* \* 1,4'/);
+  const wf = read('.github/workflows/wall-tick.yml'); assert.match(wf, /cron: '\*\/10 \* \* \* \*'/); assert.match(wf, /PREVIEW_SUPABASE_SERVICE_KEY/); assert.match(wf, /group: wall-tick/);
+  const ka = read('.github/workflows/keepalive.yml'); assert.match(ka, /cron: '0 9 \* \* 1,4'/); assert.match(ka, /live-wall-compositor\.germinal\.pages\.dev/); assert.doesNotMatch(ka, /https:\/\/germinal\.studio/);
   const dl = read('functions/api/display-live.js'); assert.match(dl, /'wall:' \+ t\.value/); assert.match(dl, /same:true/);
 });
