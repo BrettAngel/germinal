@@ -147,35 +147,33 @@ body.sim .real-stat{display:none !important;}
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<!-- PROTOTYPE (variant B): label only. The display is main's; the server reads this branch's namespaced theme (pb-…). -->
+<!-- PREVIEW: label only. -->
 <div id="protoTag" style="position:fixed;bottom:10px;left:10px;z-index:20;font-family:'Courier Prime',monospace;font-size:11px;
   letter-spacing:.12em;text-transform:uppercase;color:#e8d8b0;background:rgba(6,6,15,.7);border:1px solid rgba(200,169,110,.4);
-  border-radius:6px;padding:4px 8px;pointer-events:none;">Prototype · live wall (real engine +<script type="module">
+  border-radius:6px;padding:4px 8px;pointer-events:none;">Prototype · live wall (server)</div>
+<script type="module">
 // ═══════════════════════════════════════════════════════════════════
 // GERMINAL LIVING DISPLAY — PREVIEW (branch live-wall-compositor)
-// The wall runs MAIN'S REAL EVOLVE ENGINE (engine/germinal-engine.js, generated
-// byte-identical from app.html; tests/live-wall.test.mjs) plus the patch
-// compositor (lib/patch.js, SIM4 "N1"). No local drift of its own.
-//   · cadence: ~12 real Evolves per wall-hour (?rate=6–20); ?fast=1 = demo (clock ×120, one Evolve every ~2.5 s)
-//   · between Evolves: a display-only PIXEL DISSOLVE — changed cells switch to
-//     their new (real engine) colour in random order. No blending, no glow, no outlines.
-//   · flags (default ON): ?conflevel=0 (confident patches land at hold level 2+), ?refresh=0 (re-selection restarts a patch's fade)
-// Pure-art default + event-driven info fade-ins + auto-hiding QR; frame mode as before.
+// A thin viewer. The wall is evolved ON THE SERVER (tools/wall-tick.mjs:
+// main's real engine + the patch compositor, a tick every 10 min) and every
+// screen that opens /live (or /display?kiosk=1) shows the SAME frame.
+// No engine here, no local stepping, no drift of its own.
+//   · polls /api/display-live?wall=1 every 45 s (cheap when nothing changed)
+//   · a new frame arrives as a display-only PIXEL DISSOLVE (changed cells switch
+//     to their new colour in random order; no blending, no glow, no outlines)
+//   · offline: keeps the last frame (also cached on this screen), retries with backoff
+//   · no wall frame yet: shows the theme's live canvas, as before
 // ═══════════════════════════════════════════════════════════════════
-const WC=900, WR=660, WT=WC*WR;
+import { unpackFrame, frameToRGBA, WC, WR, WT } from '/lib/wall-frame.js';
 const QS=new URLSearchParams(location.search);
 // Same theme rules as the API (lib/validate.js), so odd ?theme= values don't 400.
 const theme=(String(QS.get('theme')||'').toLowerCase()
   .normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 \-]+/g,' ')
   .replace(/\s+/g,' ').trim().slice(0,40).trim())||'love';
 const startFramed=QS.get('frame')==='1';
-const FAST=QS.get('fast')==='1';
-const RATE=Math.max(6,Math.min(20,Number(QS.get('rate'))||12));        // Evolves per wall-hour (SIM4 N1: 6–20)
-const WARP=FAST?120:1;                                                   // demo clock speed
-const FLAGS={confLevel:QS.get('conflevel')!=='0', refresh:QS.get('refresh')!=='0'};
+const POLL_MS=45000;
 const RM=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
-const T0=Date.now(); const wallNow=()=>T0+(Date.now()-T0)*WARP;
-window.__wall={fast:FAST,rate:RATE,flags:FLAGS,frames:0,steps:0,mode:'init',stats:null};
+window.__wall={mode:'init',frames:0,generation:null,polls:0,lastChanged:0};
 
 const cvs=document.getElementById('display');
 const ctx=cvs.getContext('2d');
@@ -195,32 +193,7 @@ function resize(){
 }
 window.addEventListener('resize', resize);
 
-// ── The wall core: Worker if possible, else in the page (same code) ──
-function makeCore(){
-  let w=null, seq=0; const pend=new Map();
-  try{
-    w=new Worker('/engine/wall-worker.js',{type:'module'});
-    w.onmessage=e=>{const p=pend.get(e.data.id);if(!p)return;pend.delete(e.data.id);e.data.ok?p.res(e.data.out):p.rej(new Error(e.data.error));};
-    w.onerror=e=>{console.warn('wall worker error',e.message);for(const p of pend.values())p.rej(new Error('worker'));pend.clear();w=null;};
-  }catch(e){ w=null; }
-  let local=null;
-  async function inPage(type,a){
-    if(!local){ const {WallCore}=await import('/lib/wall-core.js'); local={WallCore,core:null}; }
-    if(type==='boot'){ local.core=new local.WallCore(a.opts); return local.core.boot(a); }
-    if(type==='patches') return local.core.addPatches(a.list,a.now,true);
-    return local.core.step(a.now);
-  }
-  return {call(type,a){
-    if(!w) return inPage(type,a);
-    return new Promise((res,rej)=>{const id=++seq;pend.set(id,{res,rej});w.postMessage({id,type,a});
-      setTimeout(()=>{if(pend.has(id)){pend.delete(id);rej(new Error('worker timeout'));}},90000);})
-      .catch(err=>{ console.warn('wall worker failed, running in page:',err.message); try{w&&w.terminate();}catch(e){} w=null;
-        if(type==='boot') return inPage(type,a); throw err; });
-  }, get worker(){return !!w;}};
-}
-let core=makeCore();
-
-// ── Display: pixel dissolve between Evolve states (display-only, real colours only) ──
+// ── Display: pixel dissolve between frames (display-only, real colours only) ──
 let shown=null, dissolving=null;
 function finishDissolve(){ if(!dissolving) return; const {next,order}=dissolving; const d=img.data;
   for(let k=dissolving.k;k<order.length;k++){const o=order[k]*4;d[o]=next[o];d[o+1]=next[o+1];d[o+2]=next[o+2];d[o+3]=255;}
@@ -232,7 +205,7 @@ function show(next){
   const order=[]; for(let i=0;i<WT;i++){const o=i*4; if(next[o]!==shown[o]||next[o+1]!==shown[o+1]||next[o+2]!==shown[o+2]) order.push(i);}
   for(let i=order.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;const t=order[i];order[i]=order[j];order[j]=t;}
   window.__wall.lastChanged=order.length;
-  const dur=FAST?1200:4000, t0=performance.now();
+  const dur=4000, t0=performance.now();
   dissolving={next,order,k:0};
   const tick=now=>{ if(!dissolving||dissolving.next!==next) return;
     const want=Math.min(order.length,Math.ceil(order.length*Math.min(1,(now-t0)/dur)));
@@ -241,9 +214,8 @@ function show(next){
     if(want<order.length) requestAnimationFrame(tick); else { shown=next; dissolving=null; } };
   requestAnimationFrame(tick);
 }
-function onFrame(out){ window.__wall.stats=out.stats; window.__wall.wallGen=out.generation; show(out.rgba); }
 
-// ── Event overlay (pure-art mode): fade in briefly on an evolution ──
+// ── Event overlay (pure-art mode): fade in briefly on a new frame ──
 let pulseTimer=null;
 function showPulse(){
   if(document.body.classList.contains('framed')) return;
@@ -265,100 +237,54 @@ function setStats(gen, contribs){
   }
 }
 
-// ── Server data, with graceful fallback ──
-// Boot: live API (canvas + patches) → last data cached on this screen → main's start canvas.
-// Then: poll new patches every 60 s (backoff 30 s → 10 min on failure). Never sits on the loading screen.
-const CACHE_KEY='germinal_live_'+theme, PCACHE_KEY='germinal_patches_'+theme;
-const MAX_AGE_MS=17*24*3600e3;
-let mode='init', curGen=0, curContribs=null, lastCreated=null, patches=[];
+// ── The server's frame, with graceful fallback ──
+const CACHE_KEY='germinal_wall_'+theme;
+let mode='init', curGen=null;
 function setMode(m){
   mode=m; window.__wall.mode=m;
   document.getElementById('demoNote').textContent =
-    m==='cached' ? 'Offline · showing the last saved canvas' : 'Simulation · waiting for the first saved canvas';
+    m==='cached' ? 'Offline · showing the last frame' : 'Waiting for the wall’s first frame';
   document.body.classList.toggle('demo', m!=='live');
-  document.body.classList.toggle('sim', m==='demo');
+  document.body.classList.toggle('sim', m==='waiting');
 }
 async function getJSON(url){
-  const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),15000);
+  const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),20000);
   try{ const res=await fetch(url,{signal:ctl.signal}); const data=await res.json().catch(()=>({}));
     if(!res.ok) throw new Error(data.error||('HTTP '+res.status)); return data; }
   finally{ clearTimeout(t); }
 }
-async function fetchPatches(since){
-  let out=[], meta=null;
-  for(let page=0;page<10;page++){
-    const d=await getJSON(`/api/display-live?theme=${encodeURIComponent(theme)}&patches=1&since=${encodeURIComponent(since)}`);
-    meta=d; const ps=Array.isArray(d.patches)?d.patches:[]; out=out.concat(ps);
-    if(ps.length<(d.limit||200)) break; since=ps[ps.length-1].created;
-  }
-  return {list:out, meta};
-}
-function notePatches(list){
-  for(const p of list){ if(!lastCreated||p.created>lastCreated) lastCreated=p.created; }
-  const horizon=new Date(Date.now()-MAX_AGE_MS).toISOString();
-  patches=patches.concat(list).filter(p=>p.created>horizon).slice(-400);
-  try{ localStorage.setItem(PCACHE_KEY, JSON.stringify(patches)); }catch(e){}
-}
-const opts={theme, flags:FLAGS};
-let booted=false, connected=false;
-async function bootFrom(src){
-  const out=await core.call('boot',{opts, cellData:src.cellData||null, lastUpdated:src.lastUpdated||null, patches:src.patches||[], now:wallNow()});
-  booted=true; onFrame(out);
+async function apply(d, fromCache){
+  const u16=await unpackFrame(d.cellData); if(!u16) return false;
+  show(frameToRGBA(u16)); curGen=d.generation; window.__wall.generation=curGen; window.__wall.source=d.source||null;
+  setStats(d.generation, typeof d.contributorCount==='number'?d.contributorCount:null);
   document.getElementById('loading').classList.add('gone');
-  showPulse();
+  if(!fromCache) showPulse();
+  return true;
 }
-async function bootLive(){
-  const since=new Date(Date.now()-MAX_AGE_MS).toISOString();
-  const [live, ps]=await Promise.all([getJSON(`/api/display-live?theme=${encodeURIComponent(theme)}`), fetchPatches(since)]);
-  if(!live.cellData&&!ps.list.length&&!live.empty) throw new Error('no data');
-  curGen=live.generation||0; curContribs=(typeof live.contributorCount==='number')?live.contributorCount:null;
-  patches=[]; notePatches(ps.list);
-  await bootFrom({cellData:live.cellData, lastUpdated:live.lastUpdated, patches:ps.list});
-  connected=true; setStats(curGen,curContribs); setMode(live.cellData||ps.list.length?'live':'demo');
-  if(live.cellData){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify({cellData:live.cellData,generation:curGen,contributorCount:curContribs,lastUpdated:live.lastUpdated})); }catch(e){} }
-}
-async function bootFallback(){
-  if(booted) return;
-  let cached=null, cps=[];
-  try{ cached=JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); cps=JSON.parse(localStorage.getItem(PCACHE_KEY)||'[]'); }catch(e){}
-  if(cached&&cached.cellData){
-    curGen=cached.generation||0; curContribs=(typeof cached.contributorCount==='number')?cached.contributorCount:null;
-    patches=[]; notePatches(cps);
-    await bootFrom({cellData:cached.cellData, lastUpdated:cached.lastUpdated, patches:cps});
-    setStats(curGen,curContribs); setMode('cached');
-  }else{ await bootFrom({}); setMode('demo'); }
+async function fromCache(){
+  try{ const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); if(c&&await apply(c,true)) { setMode('cached'); return true; } }catch(e){}
+  return false;
 }
 let backoff=0, pollTimer=null;
 function schedulePoll(ms){ clearTimeout(pollTimer); pollTimer=setTimeout(poll, ms); }
 async function poll(){
+  window.__wall.polls++;
   try{
-    if(!connected){ await bootLive(); }                               // first contact / back online: rebuild from the server
-    else{
-      const {list, meta}=await fetchPatches(lastCreated||new Date(Date.now()-MAX_AGE_MS).toISOString());
-      const fresh=list.filter(p=>!patches.some(q=>q.id===p.id));
-      if(fresh.length){ notePatches(fresh); onFrame(await core.call('patches',{list:fresh, now:wallNow()})); if(mode!=='live') setMode('live'); }
-      const g=meta&&meta.generation; if(typeof g==='number'&&g!==curGen){ curGen=g; showPulse(); }
-      if(meta&&typeof meta.contributorCount==='number') curContribs=meta.contributorCount;
-      setStats(curGen,curContribs);
-    }
-    backoff=0; schedulePoll(60000);
+    const d=await getJSON(`/api/display-live?theme=${encodeURIComponent(theme)}&wall=1${curGen!=null?'&have='+encodeURIComponent(curGen):''}`);
+    if(d.same){ if(mode!=='live') setMode('live'); if(typeof d.contributorCount==='number') setStats(curGen,d.contributorCount); }
+    else if(d.cellData){
+      if(await apply(d,false)){ setMode('live');
+        if(d.wall){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify({cellData:d.cellData,generation:d.generation,contributorCount:d.contributorCount,source:d.source})); }catch(e){} } }
+    }else if(!shown){ document.getElementById('loading').classList.add('gone'); setMode('waiting'); }
+    backoff=0; schedulePoll(POLL_MS);
   }catch(e){
     console.info('Live feed unavailable:', e.message);
-    if(!booted) await bootFallback().catch(err=>console.warn(err));
+    if(!shown && !(await fromCache())){ document.getElementById('loading').classList.add('gone'); setMode('waiting'); }
+    else if(mode==='live') setMode('cached');
     backoff=Math.min(600000, backoff?backoff*2:30000); schedulePoll(backoff*(0.8+Math.random()*0.4));
   }
 }
 window.addEventListener('online',()=>schedulePoll(1000));
-
-// ── The wall's Evolve loop: real stepGen at the wall cadence ──
-let stepping=false;
-async function evolveOnce(){
-  if(!booted||stepping) return; stepping=true;
-  try{ onFrame(await core.call('step',{now:wallNow()})); window.__wall.steps++; }
-  catch(e){ console.warn('step failed:',e.message); if(!core.worker){ core=makeCore(); booted=false; connected=false; schedulePoll(1000); } }
-  finally{ stepping=false; }
-}
-const STEP_MS=FAST?2500:Math.round(3600000/RATE);
 
 // ── QR generation (qrcodejs) ──
 function makeQR(elId, size){
@@ -401,19 +327,15 @@ function wake(){
 function boot(){
   document.getElementById('pTheme').textContent=theme;
   document.getElementById('fTheme').textContent=theme;
-  if(FAST) document.getElementById('protoTag').textContent+=' · fast demo ×'+WARP;
   resize();
   makeQR('floatQRcode',140);
   makeQR('frameQRcode',168);
   poll();
-  setTimeout(()=>{ if(!booted) bootFallback().catch(e=>console.warn(e)); }, 6000);
-  setInterval(evolveOnce, STEP_MS);
   if(startFramed) setFramed(true);
   wake();
 }
 if(document.readyState==='complete') boot();
 else window.addEventListener('load', boot);
-</script>', boot);
 </script>
 </body>
 </html>

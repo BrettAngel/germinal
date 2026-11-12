@@ -58,6 +58,37 @@ export async function onRequestGet(context){
       });
     }
 
+    // PREVIEW (server-side live wall): ?wall=1[&have=<generation>] → the frame the
+    // wall tick wrote (mother_display theme "wall:<theme>", tools/wall-tick.mjs).
+    // Every screen shows the same frame. A screen that already has this
+    // generation gets a tiny {same:true}; the frame itself (~0.5 MB, "wz1."
+    // compressed, lib/wall-frame.js) is cached at the edge per generation. No
+    // wall row yet → the behaviour below (the theme's live canvas).
+    if(url.searchParams.get('wall') === '1'){
+      const key = 'wall:' + t.value;
+      const { data:w, error:wErr } = await supabase.from('mother_display')
+        .select('generation,contributor_count,updated_at').eq('theme', key).maybeSingle();
+      if(wErr) console.warn('wall query failed:', wErr.message);
+      if(w){
+        const meta = { theme:t.value, wall:true, source:'wall', generation:w.generation, contributorCount:w.contributor_count, lastUpdated:w.updated_at };
+        if(String(w.generation) === url.searchParams.get('have')) return json({ ...meta, same:true });
+        const cache = typeof caches !== 'undefined' ? caches.default : null;
+        const ck = new Request(`${url.origin}/__wall/${encodeURIComponent(key)}/${w.generation}`);
+        const hit = cache && await cache.match(ck).catch(() => null);
+        if(hit) return new Response(hit.body, { status:200, headers });
+        const { data:f, error:fErr } = await supabase.from('mother_display')
+          .select('cell_data').eq('theme', key).eq('generation', w.generation).maybeSingle();
+        if(fErr) throw fErr;
+        if(f && f.cell_data){
+          const body = JSON.stringify({ ...meta, cellData:f.cell_data });
+          if(cache) context.waitUntil?.(cache.put(ck, new Response(body, { headers:{ 'Content-Type':'application/json', 'Cache-Control':'public, max-age=3600' } })).catch(() => {}));
+          return new Response(body, { status:200, headers });
+        }
+        // the tick moved on between the two reads: the screen asks again next poll
+        return json({ ...meta, same:true, raced:true });
+      }
+    }
+
     const { data:mother, error:mErr } = await supabase
       .from('mother_display').select('*').eq('theme', theme).maybeSingle();
     if(mErr) console.warn('mother_display query failed:', mErr.message);

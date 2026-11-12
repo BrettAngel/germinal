@@ -150,11 +150,86 @@ test('wall core: boots (no data → main\'s start canvas), replays patches, and 
   assert.equal(W.E.generation, g + 1);
   const i = 3000, c = W.E.cells[i].c; assert.deepEqual([...f1.rgba.slice(4 * i, 4 * i + 3)], P.fromHex(c));
 });
-test('live.html: runs the generated engine via the wall core (worker or in-page); no drift of its own; dissolve, no glow; ?fast=1 demo', () => {
-  for(const gone of ['stepLocal', 'RAINBOW', 'lerpH(', 'function unq(', 'decodeCanvas', 'seedDemo', 'shadowBlur', 'pendingSel']) assert.ok(!live.includes(gone), gone);
-  assert.ok(live.includes("new Worker('/engine/wall-worker.js',{type:'module'})") && live.includes("import('/lib/wall-core.js')"));
-  assert.match(live, /const FAST=QS\.get\('fast'\)==='1';/); assert.match(live, /Math\.max\(6,Math\.min\(20,Number\(QS\.get\('rate'\)\)\|\|12\)\)/);
+test('live.html: a thin viewer of the server frame — no engine, no local stepping, no drift; dissolve, no glow; offline keeps the last frame', () => {
+  for(const gone of ['stepLocal', 'RAINBOW', 'lerpH(', 'function unq(', 'decodeCanvas', 'seedDemo', 'shadowBlur', 'pendingSel', 'Worker(', 'wall-core', 'germinal-engine', 'stepGen', 'setInterval(']) assert.ok(!live.includes(gone), gone);
+  assert.match(live, /import \{ unpackFrame, frameToRGBA, WC, WR, WT \} from '\/lib\/wall-frame\.js';/);
+  assert.match(live, /\/api\/display-live\?theme=\$\{encodeURIComponent\(theme\)\}&wall=1/); assert.match(live, /const POLL_MS=45000;/);
+  assert.match(live, /backoff=Math\.min\(600000/); assert.match(live, /localStorage\.setItem\(CACHE_KEY/);
   assert.match(live, /image-rendering:pixelated/); assert.match(live, /box-shadow:0 0 80px rgba\(0,0,0,\.6\)/, 'the existing shadow stays');
-  assert.match(read('engine/wall-worker.js'), /from '\.\.\/lib\/wall-core\.js'/); assert.match(read('lib/wall-core.js'), /from '\.\.\/engine\/germinal-engine\.js'/);
+  assert.ok(!fs.existsSync(new URL('../engine/wall-worker.js', import.meta.url)), 'no wall worker any more');
+  assert.equal((live.match(/<\/script>/g) || []).length, (live.match(/<script/g) || []).length, 'balanced script tags');
+  assert.match(read('lib/wall-core.js'), /from '\.\.\/engine\/germinal-engine\.js'/);
   assert.match(app, /stabMap: gpPayload\(\),/); assert.match(app, /import \* as P from '\/lib\/patch\.js';/);
+});
+
+
+// ── the server-side wall (tools/wall-tick.mjs, lib/wall-frame.js, display-live ?wall=1) ──
+import * as WF from '../lib/wall-frame.js';
+import * as TK from '../tools/wall-tick.mjs';
+import os from 'node:os'; import path from 'node:path';
+// an in-memory PostgREST (just the queries the tick makes); patch honours the generation=eq. compare-and-set
+function fakeRest(){
+  const db = { mother_display: [], canvas_states: [] }, calls = [];
+  const parse = p => { const [t, q] = p.split('?'); const f = {}; for(const kv of (q || '').split('&')){ const [k, v] = kv.split('='); if(k) f[k] = decodeURIComponent(v || ''); } return { t, f }; };
+  const match = (r, f) => Object.entries(f).every(([k, v]) => ['select', 'order', 'limit'].includes(k) ? true
+    : v.startsWith('eq.') ? String(r[k]) === v.slice(3) : v.startsWith('gt.') ? r[k] > v.slice(3) : v.startsWith('like.') ? String(r[k] || '').startsWith(v.slice(5).replace('*', '')) : true);
+  const tick = () => new Promise(r => setImmediate(r));
+  return { db, calls,
+    async get(p){ calls.push('GET ' + p.split('?')[0]); await tick(); const { t, f } = parse(p); let rows = db[t].filter(r => match(r, f));
+      if(f.order) rows = rows.slice().sort((a, b) => a.created_at < b.created_at ? -1 : 1); if(f.limit) rows = rows.slice(0, +f.limit); return rows.map(r => ({ ...r })); },
+    async post(p, b){ calls.push('POST ' + p); await tick(); if(db[p].some(r => r.theme === b.theme)) return { conflict: true }; db[p].push({ ...b }); return [{ ...b }]; },
+    async patch(p, b){ calls.push('PATCH ' + p.split('?')[0]); await tick(); const { t, f } = parse(p); const rows = db[t].filter(r => match(r, f)); rows.forEach(r => Object.assign(r, b)); return rows.map(r => ({ ...r })); } };
+}
+const tmpState = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wall-')), 'love.json.gz');
+test('wall frame: pack → unpack round trip is the save codec exactly (colours + held bit); plain saves accepted; garbage → null; ~3x smaller', async () => {
+  const E = createGerminalEngine({ theme: 'love', Math: seeded(5) }); E.initCells(); for(let k = 0; k < 5; k++) E.stepGenFast(); E.cells[7].s = 2;
+  const save = E.encodeForServer(), packed = await WF.packFrame(save);
+  assert.ok(packed.startsWith('wz1.') && packed.length < save.length / 2, `packed ${packed.length} vs ${save.length}`);
+  const u = await WF.unpackFrame(packed), plain = await WF.unpackFrame(save);
+  assert.deepEqual([...u], [...plain]); assert.equal(WF.frameToSave(u), save); assert.ok(u[7] & 0x8000, 'held bit kept');
+  const E2 = createGerminalEngine({ theme: 'love' }); E2.initCells(); assert.ok(E2.decodeFromServer(save));
+  const rgba = WF.frameToRGBA(u); for(const i of [0, 123, 4567, P.WT - 1]) assert.deepEqual([...rgba.slice(4 * i, 4 * i + 3)], P.fromHex(E2.cells[i].c), 'viewer colour = app decode, cell ' + i);
+  for(const bad of [null, '', 'wz1.!!!', 'wz1.' + btoa('nope'), btoa('short')]) assert.equal(await WF.unpackFrame(bad), null);
+});
+test('wall tick: first tick creates wall:love; next ticks continue from the saved state, land each new patch once; lost state → rebuilt from the frame', async () => {
+  const rest = fakeRest(), file = tmpState(), now = Date.parse('2026-11-12T12:00:00Z');
+  const t1 = await TK.runTick({ rest, theme: 'love', steps: 2, stateFile: file, now });
+  assert.deepEqual([t1.written, t1.how, t1.generation], [true, 'new', 2]);
+  const row = () => rest.db.mother_display.find(r => r.theme === 'wall:love');
+  assert.ok(row().cell_data.startsWith('wz1.')); assert.ok(await WF.unpackFrame(row().cell_data));
+  rest.db.canvas_states.push({ theme: 'pb-love', short_id: 'p1', contributor_id: 'dev1', created_at: new Date(now + 60e3).toISOString(), stab_map: confident(300, 300, '#ee2233') });
+  const f1 = row().cell_data, t2 = await TK.runTick({ rest, theme: 'love', steps: 2, stateFile: file, now: now + 600e3 });
+  assert.deepEqual([t2.how, t2.generation, t2.landed, row().contributor_count], ['state', 4, 1, 1]);
+  assert.notEqual(row().cell_data, f1, 'the frame evolved');
+  const t3 = await TK.runTick({ rest, theme: 'love', steps: 2, stateFile: file, now: now + 1200e3 });
+  assert.deepEqual([t3.how, t3.landed, t3.generation], ['state', 0, 6], 'a patch lands once');
+  fs.rmSync(file);
+  const t4 = await TK.runTick({ rest, theme: 'love', steps: 2, stateFile: file, now: now + 1800e3 });
+  assert.deepEqual([t4.how, t4.generation], ['rebuilt', 8]);
+  assert.ok(rest.db.mother_display.every(r => r.theme === 'wall:love'), 'writes only the wall row');
+  assert.ok(!rest.calls.some(c => /PATCH|POST/.test(c) && !/mother_display/.test(c)), 'never writes canvas_states');
+});
+test('wall tick: two overlapping runs → exactly one writes (compare-and-set on generation); the loser keeps no state', async () => {
+  const rest = fakeRest(), now = Date.parse('2026-11-12T12:00:00Z');
+  await TK.runTick({ rest, theme: 'love', steps: 1, stateFile: null, now });
+  const fa = tmpState(), fb = tmpState();
+  const [a, b] = await Promise.all([TK.runTick({ rest, theme: 'love', steps: 2, stateFile: fa, now: now + 600e3 }), TK.runTick({ rest, theme: 'love', steps: 2, stateFile: fb, now: now + 600e3 })]);
+  assert.equal([a, b].filter(r => r.written).length, 1, JSON.stringify([a, b]));
+  assert.equal(rest.db.mother_display.find(r => r.theme === 'wall:love').generation, 3, 'advanced once');
+  assert.equal([fa, fb].filter(f => fs.existsSync(f)).length, 1, 'only the winner saved state');
+  // two first-ever runs: the insert conflicts for one of them
+  const r2 = fakeRest(), [c, d] = await Promise.all([TK.runTick({ rest: r2, now }), TK.runTick({ rest: r2, now })]);
+  assert.equal([c, d].filter(r => r.written).length, 1); assert.equal(r2.db.mother_display.length, 1);
+});
+test('wall tick: state snapshot → restore keeps cells, hold levels and patch ownership exactly', async () => {
+  const W = new WallCore({ theme: 'love', Math: seeded(3) }), now = Date.parse('2026-11-12T12:00:00Z');
+  W.boot({ patches: [{ id: 'a', device: 'd', created: new Date(now - 3600e3).toISOString(), data: confident(300, 300, '#ee2233') }], now }); W.step(now);
+  const st = TK.snapshot(W, { theme: 'love', generation: 1, since: 'x' }), R = TK.restore(JSON.parse(JSON.stringify(st)), 'love');
+  for(let i = 0; i < P.WT; i += 997) assert.deepEqual(R.E.cells[i], W.E.cells[i]);
+  assert.deepEqual([...R.C.owner].filter(o => o > 0).length, [...W.C.owner].filter(o => o > 0).length);
+  assert.deepEqual(R.C.summary(), W.C.summary());
+  const tk = read('tools/wall-tick.mjs'); assert.match(tk, /zbupbejkjpdwrzulxydj/, 'refuses the production project unless explicitly allowed');
+  const wf = read('ops/workflows/wall-tick.yml'); assert.match(wf, /cron: '\*\/10 \* \* \* \*'/); assert.match(wf, /PREVIEW_SUPABASE_SERVICE_KEY/); assert.match(wf, /group: wall-tick/);
+  assert.match(read('ops/workflows/keepalive.yml'), /cron: '0 9 \* \* 1,4'/);
+  const dl = read('functions/api/display-live.js'); assert.match(dl, /'wall:' \+ t\.value/); assert.match(dl, /same:true/);
 });
