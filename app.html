@@ -399,6 +399,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
   text-transform:uppercase;color:var(--gold);opacity:0;transition:opacity .25s,transform .25s;
   pointer-events:none;z-index:70;white-space:nowrap;}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+/* Homepage ?join=1: a small corner reminder of the real moves. Not a full-screen overlay. */
+#joinHint{position:absolute;left:14px;bottom:calc(var(--bar)+var(--safe)+12px);z-index:40;
+  max-width:min(240px,72vw);padding:10px 12px;border-radius:8px;pointer-events:none;
+  background:rgba(6,6,15,.82);color:#e8d6a8;font-family:'Courier Prime',monospace;
+  font-size:11px;letter-spacing:.06em;line-height:1.45;opacity:0;transition:opacity .35s;}
+#joinHint.show{opacity:1;}
+
 
 /* ══ SIMULATION / GENESIS ══ */
 #simPanel{position:fixed;inset:0;background:rgba(4,4,12,.99);z-index:300;
@@ -1119,6 +1126,7 @@ body.kiosk .hs .v{font-size:20px;}
 </div>
 
 <div id="toast"></div>
+<div id="joinHint">Lasso what resonates, then press Evolve.</div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
@@ -1131,6 +1139,7 @@ const CS=2,WC=900,WR=660,WW=WC*CS,WH=WR*CS,WT=WC*WR;
 // ── Pilot readiness: modes & persistence ──
 const QS=new URLSearchParams(location.search);
 const KIOSK=QS.get('kiosk')==='1';
+const JOIN=QS.get('join')==='1';   // homepage CTA: skip genesis + onboarding, land on a playable canvas
 const SHOW_PREVIEW=QS.get('preview')==='1';
 function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
@@ -1812,6 +1821,17 @@ function nextGen(){
   // Snapshot before evolving so reveal shows pre-evolution state
   if(stabCount()>0&&generation===1) snapshotCurrentStabilisation();
   stepGen();renderAll();updateStats();archiveState();
+  maybeAutoSave();
+}
+// First Evolve after a lasso writes the canvas (non-kiosk). Share stays "pass it on".
+// Does not change stepGen / the evolve rule. Kiosk saving is left as it is.
+let joinLassoed=false, joinSaved=false;
+function showJoinHint(){const el=document.getElementById('joinHint');if(el)el.classList.add('show');}
+function hideJoinHint(){const el=document.getElementById('joinHint');if(el)el.classList.remove('show');}
+function maybeAutoSave(){
+  if(KIOSK||joinSaved||!joinLassoed||!userEra)return;
+  joinSaved=true;hideJoinHint();
+  Promise.resolve(saveToServer()).then(url=>{if(url)showToast('Your choice is saved');}).catch(()=>{});
 }
 
 let autoOn=false,autoT=null;
@@ -2017,6 +2037,7 @@ function applyLasso(era){
   }
   updateStats();
 
+  if(!era&&count>0){joinLassoed=true;hideJoinHint();}
   if(era){
     showToast(`Released ${count.toLocaleString()} cells`);
   }else if(upgraded>0){
@@ -3584,7 +3605,7 @@ if(localStorage.getItem('la_onboarded')){
 
 // Check if this is a share link — if so, load canvas and skip genesis
 checkShareUrl().then(isShare => {
-  if(!isShare && (KIOSK || lsGet('germinal_genesis_seen'))){
+  if(!isShare && (KIOSK || JOIN || lsGet('germinal_genesis_seen'))){
     quickStart();
   } else if(!isShare){
     // Fresh canvas — start genesis immediately.
@@ -3635,7 +3656,8 @@ async function quickStart(){
   }catch(e){/* offline or no live canvas yet — fall back to local priming */}
   if(!loaded){for(let k=0;k<30;k++){stepGenFast();if(k%5===4)await new Promise(r=>setTimeout(r,0));}}
   renderAll();beginUserEra();
-  showToast(KIOSK?'Drag to lasso what resonates · then press Evolve':'Welcome back — Zoom · Lasso · Evolve');
+  if(JOIN && !KIOSK){showJoinHint();}
+  else showToast(KIOSK?'Drag to lasso what resonates · then press Evolve':'Welcome back — Zoom · Lasso · Evolve');
 }
 
 // Kiosk: return to a fresh canvas after 90s with no interaction
